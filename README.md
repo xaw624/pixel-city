@@ -31,8 +31,10 @@ Requiere KDE Plasma 6. Instrucciones paso a paso, actualización y solución de 
 ```bash
 git clone https://github.com/xaw624/pixel-city.git
 cd pixel-city
-kpackagetool6 -t Plasma/Wallpaper -i package
+./install.sh --activate
 ```
+
+¿Usas un agente de código (Claude Code, Codex, Cursor…)? Pídele que siga [AGENTS.md](AGENTS.md).
 
 Luego: clic derecho en el escritorio → **Configurar escritorio y fondo** → en "Tipo de fondo" elige
 **Pixel City**.

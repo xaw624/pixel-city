@@ -33,7 +33,13 @@ cd pixel-city
 
 ## 3. Instalar
 
-Desde la carpeta del proyecto:
+La forma rápida, que instala y además lo pone como fondo:
+
+```bash
+./install.sh --activate
+```
+
+Si prefieres hacerlo a mano, desde la carpeta del proyecto:
 
 ```bash
 kpackagetool6 -t Plasma/Wallpaper -i package
