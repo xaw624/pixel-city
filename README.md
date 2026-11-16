@@ -3,6 +3,8 @@
 Fondo de pantalla animado para **KDE Plasma 6**: una ciudad en pixel art junto al agua, generada
 completamente por código (sin videos ni imágenes).
 
+**[Página en la tienda de KDE](https://www.opendesktop.org/p/2381973/)** · [Guía de instalación](INSTALACION.md)
+
 ![Pixel City de noche](docs/noche.png)
 
 ## Qué tiene
@@ -24,6 +26,12 @@ completamente por código (sin videos ni imágenes).
 | ![](docs/manana.png) | ![](docs/mediodia.png) | ![](docs/atardecer.png) | ![](docs/lluvia.png) |
 
 ## Instalación
+
+**Desde Plasma (lo más fácil):** clic derecho en el escritorio → **Configurar escritorio y fondo** →
+**Obtener nuevos complementos** → busca **Pixel City**. También está en la tienda:
+[opendesktop.org/p/2381973](https://www.opendesktop.org/p/2381973/).
+
+**Desde el código:**
 
 Requiere KDE Plasma 6. Instrucciones paso a paso, actualización y solución de problemas en la
 **[guía de instalación](INSTALACION.md)**. Versión corta:

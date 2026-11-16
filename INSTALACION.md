@@ -16,6 +16,16 @@ plasmashell --version
 
 Debe decir `plasmashell 6.x.x`. Si dice 5.x, este fondo no funcionará.
 
+## Opción rápida: desde la tienda
+
+1. Clic derecho en el escritorio → **Configurar escritorio y fondo**.
+2. Pulsa **Obtener nuevos complementos** y busca **Pixel City**.
+3. Pulsa **Instalar**, elige **Pixel City** en "Tipo de fondo" y **Aplicar**.
+
+Página en la tienda: https://www.opendesktop.org/p/2381973/
+
+Si prefieres instalarlo desde el código, sigue los pasos de abajo.
+
 ## 2. Descargar
 
 **Opción A: con git**
