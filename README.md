@@ -25,7 +25,8 @@ completamente por código (sin videos ni imágenes).
 
 ## Instalación
 
-Requiere KDE Plasma 6.
+Requiere KDE Plasma 6. Instrucciones paso a paso, actualización y solución de problemas en la
+**[guía de instalación](INSTALACION.md)**. Versión corta:
 
 ```bash
 git clone https://github.com/xaw624/pixel-city.git
