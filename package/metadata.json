@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "xaw"
+            }
+        ],
+        "Category": "",
+        "Description": "Ciudad pixel art junto al agua, generada por código: gente, aves, clima y luz según la hora real",
+        "Icon": "preferences-desktop-wallpaper",
+        "Id": "org.xaw.pixelcity",
+        "License": "MIT",
+        "Name": "Pixel City",
+        "Version": "0.1"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

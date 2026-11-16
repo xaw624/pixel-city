@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Pixel City preview</title>
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<script src="package/contents/ui/scene.js"></script>
+<script>
+// Arnés de pruebas: compone las mismas capas que main.qml en un solo lienzo.
+// Parámetros: ?hour=18.5&rain=0.8&sim=60&seed=7&live=1
+var q = new URLSearchParams(location.search);
+var PX = 4, W = Math.ceil(innerWidth / PX), H = Math.ceil(innerHeight / PX);
+var world = create(W, H, +(q.get("seed") || 20251115));
+var fixedHour = q.has("hour") ? +q.get("hour") : null;
+function hourNow() { var d = new Date(); return fixedHour !== null ? fixedHour : d.getHours() + d.getMinutes() / 60; }
+if (q.has("rain")) { world.rain = world.rainTarget = +q.get("rain"); world.timers.weather = 1e9; }
+
+function layer(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+var sky = layer(W, H), clouds = layer(W * 2, H), city = layer(W, H), ambient = layer(W, H), life = layer(W, H), front = layer(W, H);
+var out = document.getElementById("out");
+out.width = W * PX; out.height = H * PX;
+var octx = out.getContext("2d");
+octx.imageSmoothingEnabled = false;
+
+var t0 = Date.now() / 1000, cloudOff = 0, P;
+function repaintStatic(t) {
+  P = palette(world, hourNow());
+  drawSky(sky.getContext("2d"), world, P);
+  drawClouds(clouds.getContext("2d"), world, P);
+  drawCity(city.getContext("2d"), world, P, t);
+  drawFront(front.getContext("2d"), world, P);
+}
+function compose() {
+  octx.clearRect(0, 0, out.width, out.height);
+  [sky].forEach(function (c) { octx.drawImage(c, 0, 0, W * PX, H * PX); });
+  octx.drawImage(clouds, -cloudOff * PX, 0, W * 2 * PX, H * PX);
+  [city, ambient, life, front].forEach(function (c) { octx.drawImage(c, 0, 0, W * PX, H * PX); });
+}
+
+P = palette(world, hourNow());
+if (world.rain > 0) for (var i = 0; i < world.people.length; i++) world.people[i].umbrella = null;
+warmup(world, hourNow(), P);
+var sim = +(q.get("sim") || 0);
+for (var s = 0; s < sim * 12; s++) step(world, 1 / 12, hourNow(), P);
+repaintStatic(t0);
+drawAmbient(ambient.getContext("2d"), world, P, t0);
+drawLife(life.getContext("2d"), world, P, t0);
+compose();
+
+if (q.get("live")) {
+  var last = performance.now();
+  setInterval(function () {
+    var now = performance.now(), dt = (now - last) / 1000; last = now;
+    var t = Date.now() / 1000;
+    step(world, dt, hourNow(), P);
+    drawAmbient(ambient.getContext("2d"), world, P, t);
+    drawLife(life.getContext("2d"), world, P, t);
+    compose();
+  }, 1000 / 15);
+  setInterval(function () { cloudOff = (cloudOff + 1) % W; }, 3000);
+  setInterval(function () { repaintStatic(Date.now() / 1000); }, 30000);
+}
+</script>
+</body>
+</html>

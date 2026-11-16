@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Pixel City estilos</title>
+<style>
+  html, body { margin: 0; background: #14151f; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<script src="package/contents/ui/scene.js"></script>
+<script>
+// Hoja de propuestas: cada estilo de edificio cercano, de día (arriba) y de noche (abajo).
+var STY = [
+  ["classic", "A · Clásico"], ["glass", "B · Torre de vidrio"], ["led", "C · Corona LED + pantalla"], ["slant", "D · Techo en diagonal"],
+  ["green", "E · Balcones verdes"], ["brace", "F · Estructura en X"], ["round", "G · Esquinas curvas"], ["twin", "H · Torres gemelas + puente"]
+];
+var W = 150, H = 270, S = 3, Y0 = 30, Y1 = 178, COLS = 4, PAD = 16, LBL = 30;
+var cw = W * S, ch = (Y1 - Y0) * S;
+var out = document.getElementById("out");
+out.width = COLS * (cw + PAD) + PAD;
+out.height = 2 * (LBL + ch * 2 + PAD) + PAD;
+var o = out.getContext("2d");
+o.imageSmoothingEnabled = false;
+o.fillStyle = "#14151f"; o.fillRect(0, 0, out.width, out.height);
+
+function panel(style, hour, seed) {
+  var w = create(W, H, seed, { style: style });
+  var P = palette(w, hour), t = 1700000000 + hour * 3600;
+  for (var i = 0; i < 3; i++) w.cars.push({ x: 25 + i * 50, y: w.base + 2 + (i % 2) * 2, dir: i % 2 ? -1 : 1, col: rgb(CARS[i + 1]), bus: i === 1, taxi: i === 2 });
+  w.cars[2].col = [230, 190, 50];
+  var c = document.createElement("canvas"); c.width = W; c.height = H;
+  var x = c.getContext("2d");
+  drawSky(x, w, P);
+  var cl = document.createElement("canvas"); cl.width = W * 2; cl.height = H;
+  drawClouds(cl.getContext("2d"), w, P);
+  x.drawImage(cl, 0, 0);
+  var city = document.createElement("canvas"); city.width = W; city.height = H;
+  drawCity(city.getContext("2d"), w, P, t);
+  x.drawImage(city, 0, 0);
+  var amb = document.createElement("canvas"); amb.width = W; amb.height = H;
+  drawAmbient(amb.getContext("2d"), w, P, t);
+  x.drawImage(amb, 0, 0);
+  var life = document.createElement("canvas"); life.width = W; life.height = H;
+  drawLife(life.getContext("2d"), w, P, t);
+  x.drawImage(life, 0, 0);
+  return c;
+}
+
+STY.forEach(function (s, i) {
+  var col = i % COLS, row = Math.floor(i / COLS);
+  var X = PAD + col * (cw + PAD), Y = PAD + row * (LBL + ch * 2 + PAD);
+  o.fillStyle = "#e8e6f0"; o.font = "bold 20px sans-serif";
+  o.fillText(s[1], X, Y + 20);
+  [[13, 0], [21.5, 1]].forEach(function (hv) {
+    var c = panel(s[0], hv[0], 41 + i * 7);
+    o.drawImage(c, 0, Y0, W, Y1 - Y0, X, Y + LBL + hv[1] * ch, cw, ch);
+  });
+});
+</script>
+</body>
+</html>
