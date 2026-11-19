@@ -3323,6 +3323,14 @@ function stepMountain(w, dt, hour, P) {
         e.ph += dt * 0.35; e.cx += e.drift * dt; e.life -= dt;
         e.x = e.cx + Math.cos(e.ph) * e.r; e.y = e.cy + Math.sin(e.ph) * e.r * 0.3;
         if (e.life <= 0) e.cx += e.drift * dt * 8;
+        // Velocidad horizontal: hacia dónde mira. Cerca de cero está dando la vuelta.
+        e.vx = e.drift * (e.life <= 0 ? 9 : 1) - Math.sin(e.ph) * e.r * 0.35;
+        // Aletea de vez en cuando unos segundos; casi siempre planea.
+        if (e.flap > 0) e.flap -= dt;
+        else {
+            e.nextFlap = (e.nextFlap === undefined ? 3 + R() * 6 : e.nextFlap) - dt;
+            if (e.nextFlap <= 0) { e.flap = 1.6; e.nextFlap = 7 + R() * 10; }
+        }
         if (e.cx < -60 || e.cx > W + 60) w.eagle = null;
     } else {
         T.eagle -= dt;
@@ -3353,17 +3361,38 @@ function stepMountain(w, dt, hour, P) {
     }
 }
 
-// Águila que planea (de espaldas), en la capa de vida.
+// Águila calva de 19×9 vista de lado (mira a la derecha): planea con el ala larga echada hacia atrás,
+// aletea (arriba, al nivel, abajo) y, al dar la vuelta en su círculo, se ve de frente con las alas abiertas.
+var EAGLE = {
+    glide: ["...................", ".f.f...............", "..ffwwww...........", "....wwwwwwww.......",
+        "tt...bbbbbbbbbhh...", "tttbbbbbbbbbbbhhhy.", "tt....bbbbbbb......", "...................", "..................."],
+    up: ["f.f................", ".ff................", "..fww..............", "...wwwwww..........",
+        "tt...bbwwwwbbbhh...", "tttbbbbbbbbbbbhhhy.", "tt....bbbbbbb......", "...................", "..................."],
+    level: ["...................", "...................", "...................", "..ffwwwwwwwww......",
+        "tt...bbbbbbbbbhh...", "tttbbbbbbbbbbbhhhy.", "tt....bbbbbbb......", "...................", "..................."],
+    down: ["...................", "...................", "...................", "...................",
+        "tt...bbbbbbbbbhh...", "tttbbbbbbbbbbbhhhy.", "tt...wwwwwwwbb.....", "...wwwww...........", ".ff.f.............."],
+    turn: ["...................", "...................", ".f.f...........f.f.", "..ffww...h...wwff..",
+        "....wwwwbbbwwww....", ".......wbbbw.......", "........ttt........", ".......t.t.t.......", "..................."]
+};
+var EAGLE_PAL = { b: [84, 60, 44], w: [70, 50, 38], f: [46, 34, 28], h: [240, 238, 230], t: [240, 238, 230], y: [232, 180, 48] };
+
+// Águila en la capa de vida.
 function drawMountainLife(ctx, w, P, t) {
     var e = w.eagle;
     if (!e) return;
-    var x = Math.round(e.x), y = Math.round(e.y), b = css(lit([74, 54, 42], P)), h = css(lit([238, 236, 228], P));
-    var tip = Math.sin(e.ph * 3) > 0 ? -1 : 0;
-    rect(ctx, x - 5, y + tip, 1, 1, b); rect(ctx, x + 5, y + tip, 1, 1, b);
-    rect(ctx, x - 4, y, 3, 1, b); rect(ctx, x + 2, y, 3, 1, b);
-    rect(ctx, x - 1, y, 3, 2, b);
-    rect(ctx, x, y - 1, 1, 1, h);
-    rect(ctx, x, y + 2, 1, 1, h);
+    var vx = e.vx || e.drift, f;
+    if (Math.abs(vx) < 1.5) f = EAGLE.turn;
+    else if (e.flap > 0) f = [EAGLE.up, EAGLE.level, EAGLE.down, EAGLE.level][Math.floor(e.flap * 5) % 4];
+    else f = EAGLE.glide;
+    var x = Math.round(e.x) - 9, y = Math.round(e.y) - 5, flip = vx < 0 && f !== EAGLE.turn;
+    for (var r = 0; r < f.length; r++) {
+        var row = f[r];
+        for (var k = 0; k < row.length; k++) {
+            var ch = row[flip ? row.length - 1 - k : k];
+            if (ch !== ".") rect(ctx, x + k, y + r, 1, 1, css(lit(EAGLE_PAL[ch], P)));
+        }
+    }
 }
 
 // Canoa con uno o dos remeros.
