@@ -2166,7 +2166,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "skywrite"];
+var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2186,6 +2186,13 @@ var FLYERS = {
         make: makeSkywrite,
         step: stepSkywrite,
         draw: drawSkywrite
+    },
+    balloon: {
+        slow: true,
+        ok: function (w, h) { return h > 6.5 && h < 18.5 && w.rain < 0.05; },
+        make: makeBalloon,
+        step: stepBalloon,
+        draw: drawBalloon
     }
 };
 
@@ -2315,6 +2322,64 @@ function drawSkywrite(ctx, f, P, t, w) {
     if (f.dir > 0 ? f.x > w.W + 10 : f.x < -10) return;
     var col = function (c) { return css(lit(c, P)); };
     for (var k = 0; k < 5; k++) sprite(ctx, SKY_PLANE, Math.round(f.x) - 2, f.y + k * SKY_GAP - 1, f.dir < 0, SKY_PLANE_PAL, col);
+}
+
+// Pixel recortado con la silueta: no se pinta delante de edificios, cerros ni del horizonte.
+function skyPx(ctx, w, x, y) {
+    if (x >= 0 && x < w.W && y >= 0 && y < w.sky[x]) ctx.fillRect(x, y, 1, 1);
+}
+
+// Globo aerostático: aparece sobre la pantalla subiendo desde detrás del horizonte, llega a su
+// altura y se deja llevar por el viento. La hora va pintada en una franja de la tela.
+var BALLOON_COLS = [[[226, 72, 64], [248, 196, 64]], [[60, 116, 206], [240, 240, 246]], [[86, 168, 100], [248, 214, 90]],
+                    [[164, 78, 168], [250, 150, 90]], [[232, 110, 150], [120, 200, 220]]];
+function makeBalloon(w, d, R) {
+    return { x: w.W * (0.15 + R() * 0.7), y: w.H * 0.66, ty: 18 + R() * 14, dir: d, speed: 2.4 + R() * 0.8,
+             cols: pick(R, BALLOON_COLS), burn: 0, bt: 1 };
+}
+function stepBalloon(f, w, dt, R) {
+    f.x += f.dir * f.speed * dt;
+    var rising = f.y > f.ty;
+    if (rising) f.y = Math.max(f.ty, f.y - 2.2 * dt);
+    // El quemador se enciende a ratos, más seguido mientras sube.
+    f.burn -= dt;
+    f.bt -= dt;
+    if (f.bt <= 0) { f.burn = 1 + R() * 0.6; f.bt = rising ? 2.5 + R() * 2 : 7 + R() * 6; }
+    return f.dir > 0 ? f.x > w.W + 12 : f.x < -12;
+}
+function drawBalloon(ctx, f, P, t, w) {
+    var cx = Math.round(f.x), cy = Math.round(f.y + (f.y <= f.ty ? Math.sin(t * 0.5) : 0));
+    var c1 = lit(f.cols[0], P), c2 = lit(f.cols[1], P), band = css(lit([246, 240, 224], P)), trim = css(mul(c1, 0.8));
+    var g = [css(c1), css(c2)], gs = [css(mul(c1, 0.78)), css(mul(c2, 0.78))], hi = css(mix(c2, [255, 255, 255], 0.4));
+    // Tela: cinco gajos que siguen el contorno; abajo se cierra en punta hacia la canasta.
+    for (var dy = -11; dy <= 11; dy++) {
+        var hw = dy <= 3 ? Math.floor(10.5 * Math.sqrt(1 - dy * dy / 132)) : Math.round(10 - (dy - 3) * 0.85);
+        for (var dx = -hw; dx <= hw; dx++) {
+            var k = Math.min(4, Math.floor((dx / (hw + 0.5)) * 2.5 + 2.5)) % 2;
+            if (dy === -3 || dy === 3) ctx.fillStyle = trim;
+            else if (dy > -3 && dy < 3) ctx.fillStyle = band;
+            else if (dx === -hw + 2 && dy >= -8 && dy <= -5) ctx.fillStyle = hi;
+            else ctx.fillStyle = dx >= hw - 1 || dx === -hw ? gs[k] : g[k];
+            skyPx(ctx, w, cx + dx, cy + dy);
+        }
+    }
+    ctx.fillStyle = css(lit([70, 44, 40], P));
+    var dots = clockDots(t);
+    for (var i = 0; i < dots.length; i++) skyPx(ctx, w, cx - 8 + dots[i][0], cy - 2 + dots[i][1]);
+    // Cuerdas, flama del quemador y canasta.
+    ctx.fillStyle = css(lit([96, 80, 64], P));
+    skyPx(ctx, w, cx - 3, cy + 12); skyPx(ctx, w, cx - 2, cy + 13);
+    skyPx(ctx, w, cx + 3, cy + 12); skyPx(ctx, w, cx + 2, cy + 13);
+    if (f.burn > 0) {
+        var fl = Math.floor(t * 10) % 2;
+        ctx.fillStyle = "#ffe070"; skyPx(ctx, w, cx, cy + 12 - fl);
+        ctx.fillStyle = "#ff9a3c"; skyPx(ctx, w, cx - 1 + fl * 2, cy + 13); skyPx(ctx, w, cx, cy + 13);
+    }
+    var wood = lit([140, 92, 52], P);
+    for (var by = 14; by <= 16; by++) {
+        ctx.fillStyle = css(by === 14 ? mix(wood, [255, 255, 255], 0.2) : mul(wood, by === 16 ? 0.75 : 1));
+        for (var bx = -2; bx <= 2; bx++) skyPx(ctx, w, cx + bx, cy + by);
+    }
 }
 
 function drawBlimp(ctx, b, P, t) {
