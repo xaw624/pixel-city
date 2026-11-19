@@ -1,0 +1,15 @@
+{
+  "scene": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Escenario",
+    "items": ["Ciudad junto al agua", "Playa", "Montaña con cabaña", "Pueblo nevado", "Campo con granja y molino", "Calle ciberpunk"]
+  },
+  "lines": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Definición",
+    "help": "Con más definición hay más detalle y la gente se ve más chica; usa algo más de CPU.",
+    "items": ["Baja · pixeles grandes (216 líneas)", "Normal (270 líneas)", "Alta (360 líneas)", "Muy alta · pixeles finos (540 líneas)"]
+  }
+}

@@ -86,6 +86,23 @@ Primero cambia a otro tipo de fondo (paso 4) y luego:
 kpackagetool6 -t Plasma/Wallpaper -r org.xaw.pixelcity
 ```
 
+## Windows (con Lively Wallpaper)
+
+Plasma no existe en Windows, pero la escena es una página web y se puede poner de fondo con
+[Lively Wallpaper](https://www.rocksdanister.com/lively/), que es gratis y de código abierto.
+
+1. Instala Lively Wallpaper (desde su página o la Microsoft Store).
+2. Descarga `pixel-city-lively-<versión>.zip` de la
+   [página de versiones](https://github.com/xaw624/pixel-city/releases) del proyecto.
+3. Arrastra el zip a la ventana de Lively (o usa el botón **+** y elige el archivo).
+4. Haz clic en **Pixel City** en la biblioteca para ponerlo de fondo.
+
+Para cambiar el escenario o la definición: clic derecho en Pixel City dentro de Lively →
+**Personalizar**. Lively pausa el fondo por su cuenta cuando hay una ventana maximizada o un juego a
+pantalla completa (se ajusta en su configuración, sección **Rendimiento**).
+
+Para armar el zip desde el código (en Linux): `lively/build.sh`. Queda en `dist/`.
+
 ## Solución de problemas
 
 **No aparece "Pixel City" en la lista de fondos.**

@@ -1,0 +1,14 @@
+{
+  "AppVersion": "1.0.0.0",
+  "Title": "Pixel City",
+  "Thumbnail": "thumbnail.jpg",
+  "Preview": "",
+  "Desc": "Ciudad en pixel art que sigue la hora real, con clima, gente y seis escenarios. Generada por código.",
+  "Author": "xaw624",
+  "License": "MIT",
+  "Contact": "https://github.com/xaw624/pixel-city",
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": "--pause-event true",
+  "IsAbsolutePath": false
+}

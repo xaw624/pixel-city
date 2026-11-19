@@ -57,6 +57,12 @@ la configuración del fondo anterior se conserva.
   Vehículos con `kind` (en `w.cars`) se dibujan con la función de `VEHICLES`.
   Sigue en un solo archivo porque los JS de QML no comparten globales entre archivos.
 - `preview.html`, `catalog.html`, `anuncios.html`: arneses para probar en el navegador.
+- `lively/`: versión web para Lively Wallpaper en Windows. `index.html` repite lo que hace
+  `main.qml` (capas, ritmos, semilla, pausa con `livelyWallpaperPlaybackChanged`) y recibe los
+  ajustes en `livelyPropertyListener` (índices de `LivelyProperties.json`) o por la dirección
+  (`?scene=beach&lines=360`). Si cambias los ritmos o las capas de `main.qml`, cámbialos aquí
+  también; si agregas un escenario, agrégalo a `SCENE_IDS` y a `LivelyProperties.json` en el
+  mismo orden. `lively/build.sh` copia `scene.js` y arma `dist/pixel-city-lively-<versión>.zip`.
 
 ## Probar cambios sin tocar el escritorio
 

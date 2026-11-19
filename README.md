@@ -60,6 +60,9 @@ completamente por código (sin videos ni imágenes).
 **Obtener nuevos complementos** → busca **Pixel City**. También está en la tienda:
 [opendesktop.org/p/2381973](https://www.opendesktop.org/p/2381973/).
 
+**En Windows:** con [Lively Wallpaper](https://www.rocksdanister.com/lively/); los pasos están en la
+[guía de instalación](INSTALACION.md#windows-con-lively-wallpaper).
+
 **Desde el código:**
 
 Requiere KDE Plasma 6. Instrucciones paso a paso, actualización y solución de problemas en la
@@ -108,6 +111,7 @@ Medido en una laptop con i5-8300H a 1920×1080 (proceso `plasmashell` completo, 
 - `preview.html`: vista previa en el navegador. Parámetros: `?scene=beach` (o `mountain`, `village`, `farm`, `cyber`), `&hour=18.5`, `&rain=0.8`, `&live=1`
   (animada), `&seed=7`, `&weather=` para fijar un escenario (`clear`, `rain`, `storm`, `snow`,
   `fog`, `rainbow`, `fireworks`).
+- `lively/`: la versión para Lively Wallpaper (Windows). `lively/build.sh` arma el zip en `dist/`.
 - `catalog.html`: hoja con todos los estilos de edificio, de día y de noche.
 - `anuncios.html`: fotogramas de los anuncios animados, los íconos y la transición entre anuncios.
 

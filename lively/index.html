@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel City</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1030; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; }
+</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<script src="scene.js"></script>
+<script>
+// Pixel City como fondo web (Lively Wallpaper en Windows u otro programa que acepte páginas).
+// Hace lo mismo que main.qml: dibuja las capas en un lienzo de pocas líneas y lo estira sin
+// suavizado. Los ajustes llegan por Lively (livelyPropertyListener) o por la dirección:
+// index.html?scene=beach&lines=360
+var SCENE_IDS = ["city", "beach", "mountain", "village", "farm", "cyber"];
+var LEVELS = [216, 270, 360, 540];
+var FPS = 12;
+
+var q = new URLSearchParams(location.search);
+var cfg = {
+  scene: SCENE_IDS.indexOf(q.get("scene")) >= 0 ? q.get("scene") : "city",
+  lines: LEVELS.indexOf(+q.get("lines")) >= 0 ? +q.get("lines") : 270
+};
+
+var out = document.getElementById("out"), octx = out.getContext("2d");
+var world = null, P = null, lw = 0, lh = 0, cloudOff = 0, lastStep = 0, paused = false;
+var sky, clouds, city, ambient, life, front;
+
+function now() { return Date.now() / 1000; }
+function hourNow() {
+  var d = new Date();
+  return d.getHours() + d.getMinutes() / 60 + d.getSeconds() / 3600;
+}
+function layer(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+
+function rebuild() {
+  var W = innerWidth, H = innerHeight;
+  if (W < 32 || H < 32) return;
+  lh = cfg.lines;
+  lw = Math.ceil(W / H * lh);
+  sky = layer(lw, lh); clouds = layer(lw * 2, lh); city = layer(lw, lh);
+  ambient = layer(lw, lh); life = layer(lw, lh); front = layer(lw, lh);
+  out.width = lw; out.height = lh;
+  // Cada pixel de arte mide H / lh pixeles de pantalla; lo que sobra a la derecha se recorta.
+  out.style.height = H + "px";
+  out.style.width = Math.round(lw * H / lh) + "px";
+  octx.imageSmoothingEnabled = false;
+  world = create(lw, lh, 20251115, { scene: cfg.scene });
+  P = palette(world, hourNow());
+  warmup(world, P.hour, P);
+  cloudOff = 0;
+  lastStep = now();
+  repaintStatic();
+  drawAmbient(ambient.getContext("2d"), world, P, now());
+  drawLife(life.getContext("2d"), world, P, now());
+  compose();
+}
+
+function repaintStatic() {
+  if (!world) return;
+  var t = now();
+  P = palette(world, hourNow());
+  drawSky(sky.getContext("2d"), world, P);
+  drawClouds(clouds.getContext("2d"), world, P);
+  drawCity(city.getContext("2d"), world, P, t);
+  drawFront(front.getContext("2d"), world, P);
+}
+
+function compose() {
+  octx.clearRect(0, 0, lw, lh);
+  octx.drawImage(sky, 0, 0);
+  octx.drawImage(clouds, -cloudOff, 0);
+  octx.drawImage(city, 0, 0);
+  octx.drawImage(ambient, 0, 0);
+  octx.drawImage(life, 0, 0);
+  octx.drawImage(front, 0, 0);
+}
+
+// Personas, aves, autos: 12 veces por segundo.
+setInterval(function () {
+  if (!world || paused) return;
+  var t = now();
+  step(world, Math.min(t - lastStep, 1), P.hour, P);
+  lastStep = t;
+  drawLife(life.getContext("2d"), world, P, t);
+  compose();
+}, Math.round(1000 / FPS));
+
+// Luces, pantallas, anuncios, dirigible y olas: cuatro veces por segundo.
+setInterval(function () {
+  if (world && !paused) drawAmbient(ambient.getContext("2d"), world, P, now());
+}, 250);
+
+// Las nubes avanzan un pixel cada pocos segundos.
+setInterval(function () {
+  if (world && !paused) cloudOff = (cloudOff + 1) % lw;
+}, 3000);
+
+// Cielo, ventanas y luz según la hora.
+setInterval(function () {
+  if (world && !paused) repaintStatic();
+}, 30000);
+
+function setPaused(p) {
+  if (p === paused) return;
+  paused = p;
+  if (!paused && world) {
+    // Al volver: sin salto en la simulación y con la luz de la hora actual.
+    lastStep = now();
+    repaintStatic();
+  }
+}
+
+// Agrupa cambios seguidos (Lively manda todos los ajustes al cargar, y el redimensionado
+// llega en ráfagas) en una sola regeneración.
+var rebuildTimer = 0;
+function scheduleRebuild() {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(rebuild, 250);
+}
+
+// Lively: se llama al cargar con cada ajuste y después cada vez que el usuario cambia uno.
+function livelyPropertyListener(name, val) {
+  var old = cfg.scene + cfg.lines;
+  if (name === "scene" && SCENE_IDS[val]) cfg.scene = SCENE_IDS[val];
+  else if (name === "lines" && LEVELS[val]) cfg.lines = LEVELS[val];
+  if (cfg.scene + cfg.lines !== old) scheduleRebuild();
+}
+
+// Lively avisa cuando pausa el fondo (ventana maximizada, juego a pantalla completa, batería).
+function livelyWallpaperPlaybackChanged(data) {
+  try { setPaused(!!JSON.parse(data).IsPaused); } catch (e) {}
+}
+
+document.addEventListener("visibilitychange", function () { setPaused(document.hidden); });
+addEventListener("resize", scheduleRebuild);
+rebuild();
+</script>
+</body>
+</html>
