@@ -48,7 +48,7 @@ la configuración del fondo anterior se conserva.
   vida, primer plano), los escala sin suavizado y maneja temporizadores y la pausa.
 - `package/contents/ui/scene.js`: todo el motor (generación, paleta por hora, simulación, dibujo).
   Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador.
-- `preview.html`, `catalog.html`, `cat-test.html`: arneses para probar en el navegador.
+- `preview.html`, `catalog.html`, `anuncios.html`: arneses para probar en el navegador.
 
 ## Probar cambios sin tocar el escritorio
 
@@ -81,6 +81,9 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   pinta en cielo o ciudad (neblina, arcoíris, nieve acumulada) solo se actualiza cada 30 s: cámbialo
   despacio. Relámpagos y fuegos van en `drawLife` y se recortan con `w.sky` (silueta de la ciudad)
   para quedar detrás de los edificios.
+- Anuncios de azotea: `BIG_ADS` (animales animados) y `SMALL_ADS` (íconos); cada cartel rota con
+  `adState`. La cara va en `drawAdFace` (ambiente) y el marco en `drawBillboard` (ciudad). No cambies
+  las llamadas a `R()` al generar carteles: cambiarían la ciudad de la semilla fija.
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
 
 ## Estilo

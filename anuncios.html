@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Pixel City anuncios</title>
+<style>body{margin:0;background:#222}</style></head><body><canvas id="o"></canvas>
+<script src="package/contents/ui/scene.js"></script>
+<script>
+// Hoja de fotogramas de los anuncios: una fila por animal (y la noche abajo), varios instantes
+// de su ciclo; al final, los íconos de los carteles chicos y una transición entre anuncios.
+// Parámetros: ?z=6 (zoom)
+var q = new URLSearchParams(location.search), Z = +(q.get("z") || 6);
+var BW = 34, BH = 18, CELL_W = BW + 4, CELL_H = BH + 4;
+var times = [[1, 3, 5, 7.2, 8.4, 9.9, 12, 15], [1, 3, 5, 8, 9, 12, 14, 15], [1, 4, 7, 8.6, 9.6, 10.4, 12, 13.4], [0.3, 1.2, 3.6, 5.5, 6.1, 8, 8.7, 11]];
+var o = document.getElementById("o"), x = o.getContext("2d");
+o.width = 8 * CELL_W * Z; o.height = (BIG_ADS.length * 2 + 2) * CELL_H * Z;
+x.imageSmoothingEnabled = false;
+var w = create(480, 270, 20251115);
+var c = document.createElement("canvas"); c.width = CELL_W; c.height = CELL_H;
+var cx = c.getContext("2d");
+function cell(col, row, paint) {
+  cx.fillStyle = "#3a3c4c"; cx.fillRect(0, 0, CELL_W, CELL_H);
+  paint(cx);
+  x.drawImage(c, 0, 0, CELL_W, CELL_H, col * CELL_W * Z, row * CELL_H * Z, CELL_W * Z, CELL_H * Z);
+}
+[[13, 0], [22, BIG_ADS.length]].forEach(function (hv) {
+  var P = palette(w, hv[0]);
+  var colf = function (h) { return P.night > 0.4 ? h : css(lit(rgb(h), P)); };
+  BIG_ADS.forEach(function (ad, i) {
+    times[i].forEach(function (tt, k) {
+      cell(k, hv[1] + i, function (g) {
+        var bb = { x: 2, y: 2, w: BW, h: BH, big: true, ph: 0, start: i, lx0: 4, lx1: BW - 1 };
+        drawBillboard(g, bb, [90, 90, 110], P, 0);
+        adContent(g, bb, ad, tt, colf);
+      });
+    });
+  });
+});
+// Íconos chicos y transición del cartel grande.
+var P = palette(w, 13);
+SMALL_ADS.forEach(function (ad, k) {
+  cell(k, BIG_ADS.length * 2, function (g) {
+    var bb = { x: 8, y: 6, w: 19, h: 10, big: false, ph: 0, start: k, lx0: 10, lx1: 24 };
+    drawBillboard(g, bb, [90, 90, 110], P, 0);
+    adContent(g, bb, ad, 0, function (h) { return css(lit(rgb(h), P)); });
+  });
+});
+[0.2, 0.5, 0.8, 1.1, 1.4, 2].forEach(function (s, k) {
+  cell(k, BIG_ADS.length * 2 + 1, function (g) {
+    var bb = { x: 2, y: 2, w: BW, h: BH, big: true, ph: 0, start: 1, lx0: 4, lx1: BW - 1 };
+    drawAdFace(g, bb, P, 40 + s);   // a los 40 s cambia del perro al pingüino
+  });
+});
+</script></body></html>

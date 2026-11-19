@@ -180,12 +180,13 @@ function create(W, H, seed, opts) {
     w.tvs = [];
     w.leds = [];
     w.screens = [];
-    w.catAds = [];
+    w.ads = [];
+    w.bigAds = [];
     w.refl = [];
     var id = { n: 1 };
     w.layers = [genLayer(w, R, 0, id), genLayer(w, R, 1, id), genLayer(w, R, 2, id)];
 
-    ensureCat(w);
+    ensureBigAd(w);
 
     // Las luces de antena que tapa un edificio más cercano no se dibujan.
     w.antennas = w.antennas.filter(function (a) { return !occluded(w, a.x, a.y, a.depth); });
@@ -428,15 +429,18 @@ function makeBuilding(w, R, depth, x, bw, bh, id) {
     var r = R();
     if (depth === 2 && style === "classic" && TT.w >= 16 && R() < 0.6) {
         var ad = pick(R, [ADS[0], ADS[0], ADS[1], ADS[2], ADS[3]]);
-        if (ad.cat && TT.w < 26) ad = ADS[1 + Math.floor(R() * 3)];
-        var bbh = ad.cat ? 18 : 10;
-        var bbw = ad.cat ? Math.min(TT.w + 4, ri(R, 30, 34)) : Math.min(TT.w - 2, ri(R, 15, 19));
+        if (ad.big && TT.w < 26) ad = ADS[1 + Math.floor(R() * 3)];
+        var bbh = ad.big ? 18 : 10;
+        var bbw = ad.big ? Math.min(TT.w + 4, ri(R, 30, 34)) : Math.min(TT.w - 2, ri(R, 15, 19));
         var bbx = TT.x + Math.floor((TT.w - bbw) / 2);
         b.billboard = {
-            x: bbx, y: TT.top - 3 - bbh, w: bbw, h: bbh, ad: ad, ph: R() * 16,
+            x: bbx, y: TT.top - 3 - bbh, w: bbw, h: bbh, big: !!ad.big, ph: R() * 16,
             lx0: Math.max(bbx + 2, TT.x + 1), lx1: Math.min(bbx + bbw - 3, TT.x + TT.w - 2)
         };
-        if (ad.cat) w.catAds.push(b.billboard);
+        // Cada cartel empieza en un anuncio distinto y luego rota.
+        b.billboard.start = ad.big ? Math.floor(b.billboard.ph) % BIG_ADS.length : ad.small;
+        w.ads.push(b.billboard);
+        if (ad.big) w.bigAds.push(b.billboard);
     } else if (depth === 0) {
         if (r < 0.25) addAntenna(w, b, TT, TT.x + ri(R, 1, Math.max(1, TT.w - 2)), ri(R, 3, 7), R);
     } else if (b.slant) {
@@ -486,10 +490,10 @@ function makeBuilding(w, R, depth, x, bw, bh, id) {
     return b;
 }
 
-// Garantiza al menos un anuncio de gato visible: usa el edificio clásico más ancho que lo permita.
-function ensureCat(w) {
+// Garantiza al menos un cartel animado visible: usa el edificio clásico más ancho que lo permita.
+function ensureBigAd(w) {
     function onScreen(q) { return q.x > 0 && q.x + q.w < w.W; }
-    if (w.catAds.some(onScreen)) return;
+    if (w.bigAds.some(onScreen)) return;
     var best = null, bw = 0;
     for (var i = 0; i < w.layers[2].length; i++) {
         var b = w.layers[2][i], T = b.tiers[b.tiers.length - 1];
@@ -501,10 +505,11 @@ function ensureCat(w) {
     var TT = best.tiers[best.tiers.length - 1], bbw = Math.min(TT.w + 4, 32), bbx = TT.x + Math.floor((TT.w - bbw) / 2);
     best.roof = [];
     best.billboard = {
-        x: bbx, y: TT.top - 21, w: bbw, h: 18, ad: ADS[0], ph: 0,
+        x: bbx, y: TT.top - 21, w: bbw, h: 18, big: true, ph: 0, start: 0,
         lx0: Math.max(bbx + 2, TT.x + 1), lx1: Math.min(bbx + bbw - 3, TT.x + TT.w - 2)
     };
-    w.catAds.push(best.billboard);
+    w.ads.push(best.billboard);
+    w.bigAds.push(best.billboard);
 }
 
 function addWin(w, b, R, x, y, ww, wh, id) {
@@ -793,7 +798,7 @@ function drawBuilding(ctx, w, b, P, t, hour, collect) {
         rect(ctx, T.x, T.top, T.w, 1, P.night > 0.4 ? (st === "led" ? css(b.led.col) : "#e8f4ff") : lt);
     }
 
-    if (b.billboard) drawBillboard(ctx, b.billboard, c, P);
+    if (b.billboard) drawBillboard(ctx, b.billboard, c, P, t);
 
     if (b.shop) {
         var night = P.night > 0.4;
@@ -1551,7 +1556,7 @@ function drawAmbient(ctx, w, P, t) {
     ctx.clearRect(0, 0, W, w.H);
     var tick = Math.floor(t * 4);
 
-    for (i = 0; i < w.catAds.length; i++) drawCatAd(ctx, w.catAds[i], P, t);
+    for (i = 0; i < w.ads.length; i++) drawAdFace(ctx, w.ads[i], P, t);
 
     // Luces de antenas.
     var day = P.night < 0.3;
@@ -1824,29 +1829,231 @@ function hue(c, f) {
     return [c[0] * m[0] + c[1] * m[1] + c[2] * m[2], c[0] * m[3] + c[1] * m[4] + c[2] * m[5], c[0] * m[6] + c[1] * m[7] + c[2] * m[8]];
 }
 
-// Anuncios de azotea: sprite con su paleta, fondo y franja de acento.
-var ADS = [
-    {
-        cat: true, bg: "#ffe4ec", acc: "#ff6f91",
-        pal: { o: "#6a3a1e", c: "#f29a3a", d: "#d0701c", l: "#ffe2bc", p: "#ff7f9e", e: "#2a2030", w: "#ffffff" },
-        rows: [".c.......c.", ".cc.....cc.", ".ccccccccc.", ".ccecccecc.", "cccccnccccc", ".cccwwwccc.", "..ccccccc.."]
-    },
-    {
-        bg: "#3a5a8c", acc: "#ffd35f", pal: { s: "#c8d4e8", w: "#ffffff", b: "#8a5a3a" },
-        rows: ["..s..s...", ".s..s....", "wbbbbbw..", "wwwwwwwww", "wwwwwww.w", "wwwwwwwww", ".wwwww..."]
-    },
-    {
-        bg: "#fff0f6", acc: "#c08cff", pal: { h: "#ff4f7a", l: "#ffa0b8" },
-        rows: [".hh...hh.", "hlhh.hhhh", "hhhhhhhhh", ".hhhhhhh.", "..hhhhh..", "...hhh...", "....h...."]
-    },
-    {
-        bg: "#bff4ff", acc: "#3a7ad0", pal: { f: "#ff8a5f", e: "#2a2030", d: "#e86a40" },
-        rows: ["...ffff....", ".ffffffff.f", "fefffffffff", "ffddffffff.", ".ffffffff.f", "...ffff...."]
+// ---------- anuncios de azotea ----------
+// Los anuncios grandes (18 de alto) muestran un animal animado y los chicos (10 de alto) un ícono.
+// Cada cartel rota entre sus anuncios con una transición de persiana. Las caras se dibujan en la
+// capa de ambiente (drawAdFace); la ciudad solo pinta el marco y el fondo.
+// ADS decide al generar la ciudad qué tipo de cartel lleva cada azotea.
+var ADS = [{ big: true }, { small: 0 }, { small: 1 }, { small: 2 }];
+var AD_TURN = 1.5;   // segundos que dura la transición
+
+// Dibuja un sprite de filas de texto ("." es transparente), espejado si flip.
+function sprite(ctx, rows, x, y, flip, pal, col) {
+    for (var r = 0; r < rows.length; r++) {
+        var row = rows[r], n = row.length;
+        for (var k = 0; k < n; k++) {
+            var ch = row[flip ? n - 1 - k : k];
+            if (ch !== ".") rect(ctx, x + k, y + r, 1, 1, col(pal[ch]));
+        }
     }
+}
+
+// Gato atigrado gris de perfil (mira a la derecha), con la cara de frente: orejas cortas,
+// bigotes y cola delgada que se curva en la punta, para que no parezca zorro.
+// o punta de la cola, c pelaje, d rayas, l pecho y hocico, p nariz y orejas, e ojos, w patas, k bigotes.
+var CAT_TOP = ["..oo.....c...c.", ".c.......cp.pc.", ".c.......ccccc.", ".c.......cecec.", "..c.....kclplck",
+               "..cdcdcdcclllc.", "..ccccccccllc..", "..cccllllllcc.."];
+var CAT_SIT = [".........c...c.", ".........cp.pc.", ".........ccccc.", ".........cecec.", "........kclplck",
+               "........cclllc.", ".......ccclllc.", "......cdcclllc.", ".....cdcdclllc.", "oo...ccccclllc.",
+               ".oocccccwwcww.."];
+var CAT = {
+    walk1: CAT_TOP.concat(["..cc.cc..cc.cc.", "..ww.ww..ww.ww."]),
+    walk2: CAT_TOP.concat(["...cc..cc.cc...", "...ww..ww.ww..."]),
+    jump: CAT_TOP.concat([".cc.......cc...", "ww.........ww.."]),
+    // Lamiéndose la pata (ojos cerrados) y sentado con la pata abajo.
+    groom1: CAT_SIT.map(function (r, i) {
+        return [null, null, null, ".........cdcdc.", null, "........ccllwc.", ".......cccllwc.", null, null, null, ".oocccccwwc...."][i] || r;
+    }),
+    groom2: CAT_SIT
+};
+
+// Perro tipo beagle: oreja caída oscura, hocico claro y cola que se menea.
+// o oreja y patas, b pelaje, l blanco, n nariz, e ojo, t lengua.
+var DOG_BODY = ["..........bbb..", ".........obbbb.", ".l.......obbeb.", ".b.......obbbln", "..b......oblll.",
+                "..bbbbbbbbbll..", "..bbbbbbbbbll..", "..bbllllllbbl.."];
+var DOG_WAG = { 2: "l........obbeb.", 3: "b........obbbln", 4: ".b.......oblll." };
+var DOG_SIT = ["..........bbb..", ".........obbbb.", ".........obbeb.", ".........obbbln", ".........obllt.",
+               "........bbbll..", ".......bbbbll..", "......bbbbbll..", ".....bbbbbbll..", "lbbbbbbbbbbll..",
+               ".....oooo..oo.."];
+var DOG_SIT_WAG = { 8: "l....bbbbbbll..", 9: ".bbbbbbbbbbll.." };
+function wag(rows, alt) {
+    return rows.map(function (r, i) { return alt[i] || r; });
+}
+var DOG = {
+    walk1: DOG_BODY.concat(["..ll.ll..ll.ll.", "..oo.oo..oo.oo."]),
+    walk2: wag(DOG_BODY, DOG_WAG).concat(["...ll..ll.ll...", "...oo..oo.oo..."]),
+    sit1: DOG_SIT,
+    sit2: wag(DOG_SIT, DOG_SIT_WAG)
+};
+
+// Pingüino: cuerpo ovalado negro, barriga blanca, pico y patas naranjas.
+var PENG_TOP = ["...kkkk...", "..kkkkkk..", "..kkkkkwk.", "..kkkkkkyy"];
+var PENG = {
+    step1: PENG_TOP.concat(["..kkkwwwk.", ".kkkwwwwwk", "kkkkwwwwwk", "kkkkwwwwwk", ".kkkwwwwwk", "..kkwwwwk.", "..yy..yy.."]),
+    step2: PENG_TOP.concat(["..kkkwwwk.", ".kkkwwwwwk", "kkkkwwwwwk", "kkkkwwwwwk", ".kkkwwwwwk", "..kkwwwwk.", "...yy.yy.."]),
+    flap: PENG_TOP.concat(["k.kkkwwwk.", ".kkkwwwwwk", ".kkkwwwwwk", ".kkkwwwwwk", ".kkkwwwwwk", "..kkwwwwk.", "..yy..yy.."]),
+    // Deslizándose panza abajo, con la cabeza a la izquierda.
+    slide: ["..kkkkkkkk..", "yykwkkkkkkk.", ".kwwwwwwwwky", "..wwwwwwww.."]
+};
+
+// Pajarito azul redondo con pecho amarillo.
+var BIRD = {
+    stand: ["....bbb..", "...bbbeby", "b.bwwbll.", "bbbwwwll.", ".bbbbll..", "...f.f..."],
+    peck: [".........", "....bbb..", "b.bwwbbeb", "bbbwwwlly", ".bbbbll..", "...f.f..."],
+    up: ["..w.bbb..", "..wwbbeby", "b..bbbll.", "bbbbbll..", ".........", "........."],
+    down: ["....bbb..", "...bbbeby", "b.bbbbll.", "bbwwwll..", "..ww.....", "........."]
+};
+
+// Área útil de un cartel grande: piso justo encima de la franja de acento.
+function adBox(bb, sw) {
+    return { ix: bb.x + 1, iw: bb.w - 2, floor: bb.y + bb.h - 3, span: bb.w - 2 - sw };
+}
+
+// Gato, ciclo de 16 s: camina a la derecha, se sienta a acicalarse, salta y regresa.
+function drawCatAnim(ctx, bb, ad, t, col) {
+    var B = adBox(bb, 15), c = (t + bb.ph) % 16, x, dir = 1, frame, lift = 0;
+    var steps = Math.floor(t * 5) % 2 ? "walk1" : "walk2";
+    if (c < 6) { x = B.span * c / 6; frame = steps; }
+    else if (c < 9.5) { x = B.span; frame = Math.floor(t * 3) % 2 ? "groom1" : "groom2"; }
+    else if (c < 10.5) { x = B.span; frame = "jump"; lift = Math.round(Math.sin((c - 9.5) * Math.PI) * 4); }
+    else { x = B.span * (1 - (c - 10.5) / 5.5); frame = steps; dir = -1; }
+    var rows = CAT[frame], x0 = B.ix + Math.round(x), y0 = B.floor - (rows.length - 1) - lift;
+    sprite(ctx, rows, x0, y0, dir < 0, ad.pal, col);
+    // Corazón que flota mientras se acicala.
+    if (c >= 7 && c < 9.5) {
+        var hy = y0 - 1 - Math.floor((c - 7) * 1.2), hx = x0 + 9;
+        if (hy > bb.y) sprite(ctx, ["h.h", "hhh", ".h."], hx, hy, false, { h: ad.acc }, col);
+    }
+}
+
+// Perro, ciclo de 16 s: camina, se sienta moviendo la cola y ladra, y regresa.
+function drawDogAnim(ctx, bb, ad, t, col) {
+    var B = adBox(bb, 15), c = (t + bb.ph) % 16, x, dir = 1, frame, stop = Math.max(0, B.span - 3);
+    var steps = Math.floor(t * 5) % 2 ? "walk1" : "walk2";
+    if (c < 6) { x = stop * c / 6; frame = steps; }
+    else if (c < 10.5) { x = stop; frame = Math.floor(t * 6) % 2 ? "sit1" : "sit2"; }
+    else { x = stop * (1 - (c - 10.5) / 5.5); frame = steps; dir = -1; }
+    var rows = DOG[frame], x0 = B.ix + Math.round(x), y0 = B.floor - (rows.length - 1);
+    sprite(ctx, rows, x0, y0, dir < 0, ad.pal, col);
+    // ¡Guau!: ondas que salen del hocico.
+    if (c >= 7.5 && c < 9.5 && Math.floor(t * 4) % 2 === 0)
+        sprite(ctx, ["a.", ".a", ".a", "a."], x0 + 16, y0 + 2, false, { a: ad.acc }, col);
+}
+
+// Pingüino, ciclo de 16 s: camina bamboleándose, aletea y se desliza de panza de regreso.
+function drawPenguinAnim(ctx, bb, ad, t, col) {
+    var B = adBox(bb, 10), c = (t + bb.ph) % 16, x, rows, lift = 0, flip = false;
+    var step = Math.floor(t * 4) % 2;
+    if (c < 8) { x = B.span * c / 8; rows = step ? PENG.step1 : PENG.step2; lift = step; }
+    else if (c < 9.2) { x = B.span; rows = Math.floor(t * 6) % 2 ? PENG.flap : PENG.step1; }
+    else if (c < 11) {
+        x = B.span * (1 - (c - 9.2) / 1.8);
+        var x1 = B.ix + Math.round(x), y1 = B.floor - 3;
+        sprite(ctx, PENG.slide, x1, y1, false, ad.pal, col);
+        // Rayas de velocidad detrás.
+        ctx.globalAlpha = 0.6;
+        rect(ctx, x1 + 13, y1 + 1, 3, 1, col(ad.acc));
+        rect(ctx, x1 + 14, y1 + 3, 3, 1, col(ad.acc));
+        ctx.globalAlpha = 1;
+        return;
+    } else { x = 0; rows = c > 13 && c < 13.8 && Math.floor(t * 6) % 2 ? PENG.flap : PENG.step1; }
+    sprite(ctx, rows, B.ix + Math.round(x), B.floor - (rows.length - 1) - lift, flip, ad.pal, col);
+}
+
+// Pajarito, ciclo de 12 s: avanza a saltitos, picotea semillas y vuela de regreso.
+function drawBirdAnim(ctx, bb, ad, t, col) {
+    var B = adBox(bb, 9), c = (t + bb.ph) % 12, stop = Math.max(0, B.span - 2), x, rows = BIRD.stand, lift = 0, dir = 1;
+    if (c < 5) {
+        x = stop * Math.floor(c * 2) / 10;
+        lift = Math.round(Math.sin((c * 2 % 1) * Math.PI) * 2);
+    } else if (c < 7.5) {
+        x = stop;
+        rows = Math.floor(t * 4) % 2 ? BIRD.peck : BIRD.stand;
+        rect(ctx, B.ix + stop + 9, B.floor, 1, 1, col(ad.pal.s));
+        rect(ctx, B.ix + stop + 11, B.floor, 1, 1, col(ad.pal.s));
+    } else if (c < 9.5) {
+        var u = (c - 7.5) / 2;
+        x = stop * (1 - u);
+        lift = Math.round(Math.sin(u * Math.PI) * 7);
+        rows = Math.floor(t * 8) % 2 ? BIRD.up : BIRD.down;
+        dir = -1;
+    } else {
+        x = 0;
+        rows = c > 10.5 && c < 11.5 && Math.floor(t * 4) % 2 ? BIRD.peck : BIRD.stand;
+    }
+    sprite(ctx, rows, B.ix + Math.round(x), B.floor - 5 - lift, dir < 0, ad.pal, col);
+}
+
+var BIG_ADS = [
+    { bg: "#ffe4ec", acc: "#ff6f91", draw: drawCatAnim,
+      pal: { o: "#4a4e5c", c: "#a3a8b6", d: "#6e7384", l: "#f4f4f8", p: "#ff8fa8", e: "#2a2030", w: "#ffffff", k: "#6a6272" } },
+    { bg: "#fff1cc", acc: "#e0903a", draw: drawDogAnim,
+      pal: { o: "#6a4428", b: "#c08850", l: "#f6eedc", n: "#2a2030", e: "#2a2030", t: "#ff7f9e" } },
+    { bg: "#cdeeff", acc: "#3a7ad0", draw: drawPenguinAnim,
+      pal: { k: "#22243a", w: "#ffffff", y: "#ffa82e" } },
+    { bg: "#e2f7d4", acc: "#50b080", draw: drawBirdAnim,
+      pal: { b: "#4a90e0", w: "#2a62b0", l: "#ffd86a", e: "#202028", y: "#ff9a3c", f: "#ff9a3c", s: "#8a6a3a" } }
 ];
 
-function drawBillboard(ctx, bb, c, P) {
-    var night = P.night > 0.4, ad = bb.ad;
+var SMALL_ADS = [
+    { bg: "#3a5a8c", acc: "#ffd35f", pal: { s: "#c8d4e8", w: "#ffffff", b: "#8a5a3a" },
+      rows: ["..s..s...", ".s..s....", "wbbbbbw..", "wwwwwwwww", "wwwwwww.w", "wwwwwwwww", ".wwwww..."] },
+    { bg: "#fff0f6", acc: "#c08cff", pal: { h: "#ff4f7a", l: "#ffa0b8" },
+      rows: [".hh...hh.", "hlhh.hhhh", "hhhhhhhhh", ".hhhhhhh.", "..hhhhh..", "...hhh...", "....h...."] },
+    { bg: "#bff4ff", acc: "#3a7ad0", pal: { f: "#ff8a5f", e: "#2a2030", d: "#e86a40" },
+      rows: ["...ffff....", ".ffffffff.f", "fefffffffff", "ffddffffff.", ".ffffffff.f", "...ffff...."] },
+    { bg: "#9ad4ff", acc: "#ffffff", pal: { k: "#22243a", w: "#ffffff", e: "#22243a", y: "#ffa82e", b: "#ff9ab0" },
+      rows: ["..kkkkk..", ".kkwwwkk.", ".kwewewk.", ".kwwywwk.", ".kbwwwbk.", "..kwwwk..", "..yy.yy.."] },
+    { bg: "#ffe0a0", acc: "#b07a48", pal: { o: "#6a4428", b: "#c08850", l: "#f6eedc", e: "#2a2030", n: "#2a2030", t: "#ff7f9e" },
+      rows: [".bbbbbbb.", "obbbbbbbo", "obebbbebo", "obblnlbbo", "o.lltll.o", "...lll..."] },
+    { bg: "#d4f4c4", acc: "#50b080", pal: { b: "#4a90e0", w: "#2a62b0", l: "#ffd86a", e: "#202028", y: "#ff9a3c", f: "#ff9a3c" },
+      rows: BIRD.stand }
+];
+
+// Qué anuncio muestra un cartel en el instante t, el anterior y hace cuánto cambió.
+function adState(bb, t) {
+    var list = bb.big ? BIG_ADS : SMALL_ADS, n = list.length, per = bb.big ? 40 : 30;
+    var u = (t + bb.ph * 7) / per, k = Math.floor(u), i = ((bb.start + k) % n + n) % n;
+    return { ad: list[i], prev: list[(i + n - 1) % n], since: (u - k) * per };
+}
+
+function adContent(ctx, bb, ad, t, col) {
+    rect(ctx, bb.x + 1, bb.y + 1, bb.w - 2, bb.h - 2, col(ad.bg));
+    rect(ctx, bb.x + 1, bb.y + bb.h - 2, bb.w - 2, 1, col(ad.acc));
+    if (ad.draw) ad.draw(ctx, bb, ad, t, col);
+    else sprite(ctx, ad.rows, bb.x + Math.floor((bb.w - ad.rows[0].length) / 2), bb.y + 1, false, ad.pal, col);
+}
+
+// Cara del cartel (capa de ambiente). Al cambiar, el anuncio nuevo baja como persiana.
+function drawAdFace(ctx, bb, P, t) {
+    var night = P.night > 0.4;
+    function col(h) { return night ? h : css(lit(rgb(h), P)); }
+    var s = adState(bb, t), ix = bb.x + 1, iy = bb.y + 1, iw = bb.w - 2, ih = bb.h - 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(ix, iy, iw, ih);
+    ctx.clip();
+    if (s.since < AD_TURN) {
+        adContent(ctx, bb, s.prev, t, col);
+        var rows = Math.round(ih * s.since / AD_TURN);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ix, iy, iw, rows);
+        ctx.clip();
+        adContent(ctx, bb, s.ad, t, col);
+        ctx.restore();
+        ctx.globalAlpha = 0.8;
+        rect(ctx, ix, iy + rows, iw, 1, "#ffffff");
+        ctx.globalAlpha = 1;
+    } else {
+        adContent(ctx, bb, s.ad, t, col);
+    }
+    ctx.restore();
+}
+
+// Marco, patas y fondo del cartel (capa de ciudad; el fondo también sale en el reflejo).
+function drawBillboard(ctx, bb, c, P, t) {
+    var night = P.night > 0.4, ad = adState(bb, t).ad;
     function col(h) { return night ? h : css(lit(rgb(h), P)); }
     var frame = css(mul(c, 0.55));
     rect(ctx, bb.lx0, bb.y + bb.h, 1, 3, frame);
@@ -1858,63 +2065,9 @@ function drawBillboard(ctx, bb, c, P) {
     }
     rect(ctx, bb.x, bb.y, bb.w, bb.h, frame);
     rect(ctx, bb.x + 1, bb.y + 1, bb.w - 2, bb.h - 2, col(ad.bg));
-    rect(ctx, bb.x + 1, bb.y + bb.h - 2, bb.w - 2, 1, col(ad.acc));
-    // El gato se anima en la capa de vida (drawCatAd).
-    var sw = ad.rows[0].length, sx = bb.x + Math.floor((bb.w - sw) / 2), sy = bb.y + 1;
-    for (var r = 0; r < (ad.cat ? 0 : ad.rows.length); r++)
-        for (var k = 0; k < sw; k++) {
-            var ch = ad.rows[r][k];
-            if (ch !== ".") rect(ctx, sx + k, sy + r, 1, 1, col(ad.pal[ch]));
-        }
     // Reflectores encima del marco.
     rect(ctx, bb.x + 3, bb.y - 1, 1, 1, frame);
     rect(ctx, bb.x + bb.w - 4, bb.y - 1, 1, 1, frame);
-}
-
-// Gato de perfil (mirando a la derecha) para el anuncio animado.
-// o contorno y cola, c pelaje, d rayas, l panza, p nariz y orejas, e ojos, w patas.
-var CAT_TOP = ["o........o....o", "co.......op..po", "co.......occcco", ".co......ceccec", ".co.....clcppcl",
-               "..occcccccllll.", "..cdcdcdccccc..", "..ccccccccccc..", "..cllllllllcc.."];
-var CAT_SIT = [".........o....o", ".........op..po", ".........occcco", null, "........clcppcl",
-               null, null, "....ccccccccc..", "...cccllllcc...", "oo.cccllllcc...", "ooooccwwccww..."];
-var CAT = {
-    walk1: CAT_TOP.concat(["..cc.cc..cc.cc.", "..ww.ww..ww.ww."]),
-    walk2: CAT_TOP.concat(["...cc..cc.cc...", "...ww..ww.ww..."]),
-    jump: CAT_TOP.concat([".cc.......cc...", "ww.........ww.."]),
-    // Lamiéndose la pata (ojos cerrados) y con la pata abajo.
-    groom1: CAT_SIT.map(function (r, i) { return r || [null, null, null, ".........coccoc", null, "......cccllllw.", ".....cdcdcccw.."][i]; }),
-    groom2: CAT_SIT.map(function (r, i) { return r || [null, null, null, ".........ceccec", null, "......cccllll..", ".....cdcdccc..."][i]; })
-};
-
-// Ciclo de 16 s: camina a la derecha, se sienta a acicalarse, salta y regresa caminando.
-function drawCatAd(ctx, bb, P, t) {
-    var night = P.night > 0.4, ad = bb.ad;
-    function col(h) { return night ? h : css(lit(rgb(h), P)); }
-    var SW = 15, ix = bb.x + 1, iw = bb.w - 2, floor = bb.y + bb.h - 3, span = iw - SW;
-    var c = (t + bb.ph) % 16, x, dir = 1, frame, lift = 0;
-    var steps = Math.floor(t * 5) % 2 ? "walk1" : "walk2";
-    if (c < 6) { x = span * c / 6; frame = steps; }
-    else if (c < 9.5) { x = span; frame = Math.floor(t * 3) % 2 ? "groom1" : "groom2"; }
-    else if (c < 10.5) { x = span; frame = "jump"; lift = Math.round(Math.sin((c - 9.5) * Math.PI) * 4); }
-    else { x = span * (1 - (c - 10.5) / 5.5); frame = steps; dir = -1; }
-    var rows = CAT[frame], x0 = ix + Math.round(x), y0 = floor - (rows.length - 1) - lift;
-    for (var r = 0; r < rows.length; r++)
-        for (var k = 0; k < SW; k++) {
-            var ch = rows[r][dir > 0 ? k : SW - 1 - k];
-            if (ch !== ".") rect(ctx, x0 + k, y0 + r, 1, 1, col(ad.pal[ch]));
-        }
-    // Corazón que flota mientras se acicala.
-    if (c >= 7 && c < 9.5) {
-        var hy = y0 - 1 - Math.floor((c - 7) * 1.2);
-        if (hy > bb.y) {
-            ctx.fillStyle = col(ad.acc);
-            var hx = x0 + 8;
-            ctx.fillRect(hx, hy, 1, 1);
-            ctx.fillRect(hx + 2, hy, 1, 1);
-            ctx.fillRect(hx, hy + 1, 3, 1);
-            ctx.fillRect(hx + 1, hy + 2, 1, 1);
-        }
-    }
 }
 
 // Dígitos de 3×5 para el reloj del dirigible.

@@ -13,7 +13,8 @@ completamente por código (sin videos ni imágenes).
   alguna estrella fugaz.
 - **Ciudad variada**: torres de vidrio que reflejan el cielo, vidrio con techo en diagonal, coronas
   LED que cambian de color, pantallas animadas, balcones con plantas, torres gemelas y edificios
-  clásicos con anuncios en la azotea (incluido un gatito que camina, se acicala y salta).
+  clásicos con anuncios en la azotea que van cambiando: un gato que se acicala y salta, un perro
+  que mueve la cola, un pingüino que se desliza de panza y un pajarito que picotea y vuela.
 - **Vida**: gente paseando (con perros, familias, corredores), palomas que se espantan cuando alguien
   pasa, bandadas, gaviotas, autos, taxis y autobuses, ferris, veleros y lanchas.
 - **Dirigible con reloj** que muestra la hora actual.
@@ -90,7 +91,7 @@ Medido en una laptop con i5-8300H a 1920×1080 (proceso `plasmashell` completo, 
   (animada), `&seed=7`, `&weather=` para fijar un escenario (`clear`, `rain`, `storm`, `snow`,
   `fog`, `rainbow`, `fireworks`).
 - `catalog.html`: hoja con todos los estilos de edificio, de día y de noche.
-- `cat-test.html`: fotogramas de la animación del gato.
+- `anuncios.html`: fotogramas de los anuncios animados, los íconos y la transición entre anuncios.
 
 ![Estilos de edificio](docs/estilos.png)
 
