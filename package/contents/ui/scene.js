@@ -2166,7 +2166,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon"];
+var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon", "heli"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2193,6 +2193,11 @@ var FLYERS = {
         make: makeBalloon,
         step: stepBalloon,
         draw: drawBalloon
+    },
+    heli: {
+        ok: function (w) { return (w.scene === "city" || w.scene === "beach" || w.scene === "cyber") && !w.storm; },
+        make: function (w, d, R) { return { x: d > 0 ? -10 : w.W + 10, y: 12 + R() * 16, dir: d, speed: 11 + R() * 3, m: 16 }; },
+        draw: drawHeli
     }
 };
 
@@ -2379,6 +2384,50 @@ function drawBalloon(ctx, f, P, t, w) {
     for (var by = 14; by <= 16; by++) {
         ctx.fillStyle = css(by === 14 ? mix(wood, [255, 255, 255], 0.2) : mul(wood, by === 16 ? 0.75 : 1));
         for (var bx = -2; bx <= 2; bx++) skyPx(ctx, w, cx + bx, cy + by);
+    }
+}
+
+// Helicóptero de 16×7 (mira a la derecha) que lleva colgando una pantalla con la hora.
+// m mástil, b fuselaje, s franja, g cabina, t cola, k patines. El rotor se dibuja aparte.
+var HELI = ["........m.......", "......bbbbbb....", "t....bbbbbbggg..", "tbbbbssssssgggg.", "t....bbbbbbbbbb.",
+            ".......k...k....", "....kkkkkkkkkk.."];
+var HELI_PAL = { m: [80, 80, 92], b: [236, 236, 240], s: [232, 118, 40], g: [110, 160, 210], t: [232, 118, 40], k: [64, 64, 76] };
+function drawHeli(ctx, f, P, t, w) {
+    var d = f.dir, cx = Math.round(f.x), y = Math.round(f.y + Math.sin(t * 1.1) * 1.2), x = cx - 8;
+    var night = P.night > 0.4, col = function (c) { return css(lit(c, P)); };
+    // Reflector: un cono tenue que sale de la nariz hacia abajo y adelante.
+    if (night) {
+        ctx.globalAlpha = 0.09;
+        for (var r = 0; r < 70; r++) {
+            var hw = 1 + Math.floor(r * 0.22), sx = cx + d * (7 + Math.floor(r * 0.45));
+            rect(ctx, sx - hw, y + 5 + r, hw * 2 + 1, 1, "#fff2c0");
+        }
+        ctx.globalAlpha = 1;
+    }
+    // Cable y pantalla, que se mece un poco.
+    var sw = Math.round(Math.sin(t * 1.3)), sy = y + 11;
+    rect(ctx, cx, y + 7, 1, 2, col([60, 60, 70]));
+    rect(ctx, cx + sw, y + 9, 1, 2, col([60, 60, 70]));
+    rect(ctx, cx + sw - 11, sy, 23, 9, "#2a2c3a");
+    rect(ctx, cx + sw - 10, sy + 1, 21, 7, "#12141c");
+    var lc = "#ffb040";
+    if (night) {
+        ctx.globalAlpha = 0.22;
+        rect(ctx, cx + sw - 10, sy + 1, 21, 7, lc);
+        ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = lc;
+    var dots = clockDots(t);
+    for (var i = 0; i < dots.length; i++) ctx.fillRect(cx + sw - 8 + dots[i][0], sy + 2 + dots[i][1], 1, 1);
+    // Fuselaje, rotor principal (largo y corto alternados) y rotor de cola.
+    sprite(ctx, HELI, x, y, d < 0, HELI_PAL, col);
+    var spin = Math.floor(t * 16) % 2, rc = col([60, 60, 72]);
+    if (spin) rect(ctx, x + 1, y - 1, 14, 1, rc);
+    else rect(ctx, x + 5, y - 1, 6, 1, rc);
+    rect(ctx, d > 0 ? x - 1 : x + 16, spin ? y + 2 : y + 4, 1, 1, rc);
+    if (night) {
+        rect(ctx, d > 0 ? x : x + 15, y + 2, 1, 1, Math.floor(t * 1.5) % 2 === 0 ? "#ff5050" : "#5a2020");
+        rect(ctx, d > 0 ? x + 9 : x + 6, y + 6, 1, 1, Math.floor(t * 2 + 0.3) % 3 === 0 ? "#ffffff" : "#80808a");
     }
 }
 
