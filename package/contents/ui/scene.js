@@ -2249,7 +2249,7 @@ var BANNER_PLANE_PAL = { t: [200, 56, 60], w: [200, 56, 60], b: [236, 236, 240],
 var BANNER_W = 25, BANNER_H = 9, BANNER_ROPE = 6;
 
 // Avioneta que remolca un cartel de tela con la hora; el cartel ondea más hacia su extremo libre.
-function drawBannerPlane(ctx, b, P, t) {
+function drawBannerPlane(ctx, b, P, t, w) {
     var d = b.dir, y = Math.round(b.y + Math.sin(t * 0.9) * 1.2), x = Math.round(b.x) - 6;
     var col = function (c) { return css(lit(c, P)); };
     sprite(ctx, BANNER_PLANE, x, y, d < 0, BANNER_PLANE_PAL, col);
@@ -2263,19 +2263,37 @@ function drawBannerPlane(ctx, b, P, t) {
         rect(ctx, d > 0 ? x + 8 : x + 3, y + 1, 1, 1, Math.floor(t * 1.5) % 2 === 0 ? "#ff6060" : "#60ff80");
         if (Math.floor(t * 1.2) % 3 === 0) rect(ctx, d > 0 ? x : x + 11, y, 1, 1, "#ffffff");
     }
-    // Cuerda con una pequeña comba, de la cola al palo del cartel.
-    var tail = d > 0 ? x - 1 : x + 12, rope = col([110, 100, 90]);
-    for (var r = 0; r < BANNER_ROPE; r++) rect(ctx, tail - d * r, y + 2 + (r > 1 && r < BANNER_ROPE - 1 ? 1 : 0), 1, 1, rope);
+    drawTowedBanner(ctx, w, d > 0 ? x - 1 : x + 12, y + 2, d, P, t);
+}
+
+// En la playa el cartel alterna la hora con un anuncio de helados (cono, paleta y cono).
+var ICE_CREAM = [".ppp...ooo...mmm.", "ppppp..ooo..mmmmm", "ccccc..ooo..ccccc", ".ccc....s....ccc.", "..c.....s.....c.."];
+var ICE_CREAM_PAL = { p: [240, 120, 160], o: [240, 140, 50], m: [110, 206, 166], c: [214, 160, 80], s: [196, 164, 116] };
+
+// Cuerda (desde tail, a la altura y) y cartel que se arrastran en sentido contrario a d.
+function drawTowedBanner(ctx, w, tail, y, d, P, t) {
+    var col = function (c) { return css(lit(c, P)); }, rope = col([110, 100, 90]);
+    for (var r = 0; r < BANNER_ROPE; r++) rect(ctx, tail - d * r, y + (r > 1 && r < BANNER_ROPE - 1 ? 1 : 0), 1, 1, rope);
     // Cartel: columna c contada desde el palo; la ondulación crece hacia el extremo libre.
-    var pole = tail - d * BANNER_ROPE, top = y - 2;
+    var pole = tail - d * BANNER_ROPE, top = y - 4;
     var cloth = lit([246, 240, 224], P), fold = lit([212, 202, 182], P), ink = col([204, 40, 50]);
     // Ondas de un solo pixel para que la hora se siga leyendo; la punta libre aletea más.
     var wave = function (c) {
         var o = c > 5 && Math.sin(t * 4 - c * 0.3) > 0.2 ? 1 : 0;
         return c > BANNER_W - 3 ? o + Math.round(Math.sin(t * 9 + c * 1.7)) : o;
     };
-    var dots = clockDots(t), grid = {};
-    for (var i = 0; i < dots.length; i++) grid[(dots[i][0] + 4) + "," + (dots[i][1] + 2)] = 1;
+    // grid["columna,fila"] = color de lo que va escrito en la tela.
+    var grid = {}, i;
+    if (w.scene === "beach" && Math.floor(t / 6) % 2 === 1) {
+        for (i = 0; i < 5; i++)
+            for (var j = 0; j < 17; j++) {
+                var ch = ICE_CREAM[i][j];
+                if (ch !== ".") grid[(j + 4) + "," + (i + 2)] = col(ICE_CREAM_PAL[ch]);
+            }
+    } else {
+        var dots = clockDots(t);
+        for (i = 0; i < dots.length; i++) grid[(dots[i][0] + 4) + "," + (dots[i][1] + 2)] = ink;
+    }
     rect(ctx, pole, top - 1, 1, BANNER_H + 2, col([96, 80, 64]));
     for (var c = 1; c <= BANNER_W; c++) {
         var sx = pole - d * c, o = wave(c), k = d > 0 ? BANNER_W - c : c - 1;
@@ -2283,8 +2301,10 @@ function drawBannerPlane(ctx, b, P, t) {
         rect(ctx, sx, y0, 1, h, css(o < wave(c - 1) ? fold : cloth));
         rect(ctx, sx, y0, 1, 1, ink);
         rect(ctx, sx, y0 + h - 1, 1, 1, ink);
-        ctx.fillStyle = ink;
-        for (var rr = 2; rr < 7; rr++) if (grid[k + "," + rr]) ctx.fillRect(sx, y0 + rr, 1, 1);
+        for (var rr = 2; rr < 7; rr++) {
+            var gc = grid[k + "," + rr];
+            if (gc) rect(ctx, sx, y0 + rr, 1, 1, gc);
+        }
     }
 }
 
