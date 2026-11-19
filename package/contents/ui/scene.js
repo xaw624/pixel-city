@@ -2166,7 +2166,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon", "heli"];
+var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon", "heli", "holo"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2198,6 +2198,11 @@ var FLYERS = {
         ok: function (w) { return (w.scene === "city" || w.scene === "beach" || w.scene === "cyber") && !w.storm; },
         make: function (w, d, R) { return { x: d > 0 ? -10 : w.W + 10, y: 12 + R() * 16, dir: d, speed: 11 + R() * 3, m: 16 }; },
         draw: drawHeli
+    },
+    holo: {
+        ok: function (w) { return w.scene === "cyber"; },
+        make: function (w, d, R) { return { x: d > 0 ? -12 : w.W + 12, y: 14 + R() * 20, dir: d, speed: 6 + R() * 2, m: 14, id: R() * 1000 }; },
+        draw: drawHolo
     }
 };
 
@@ -2429,6 +2434,44 @@ function drawHeli(ctx, f, P, t, w) {
         rect(ctx, d > 0 ? x : x + 15, y + 2, 1, 1, Math.floor(t * 1.5) % 2 === 0 ? "#ff5050" : "#5a2020");
         rect(ctx, d > 0 ? x + 9 : x + 6, y + 6, 1, 1, Math.floor(t * 2 + 0.3) % 3 === 0 ? "#ffffff" : "#80808a");
     }
+}
+
+// Dron de 9×3 que proyecta la hora en un holograma cian que tiembla y falla de vez en cuando.
+// p hélices, a brazos, b cuerpo, k lente.
+var DRONE = ["pp.....pp", ".aabbbaa.", "...bkb..."];
+var DRONE_PAL = { p: [150, 150, 170], a: [60, 62, 80], b: [40, 42, 58], k: [90, 240, 255] };
+function drawHolo(ctx, f, P, t, w) {
+    var cx = Math.round(f.x), y = Math.round(f.y + Math.sin(t * 2) * 1.5), x = cx - 4;
+    var cyan = "#5ff2ff", tick = Math.floor(t * 8);
+    sprite(ctx, DRONE, x, y, false, DRONE_PAL, function (c) { return css(c); });
+    if (tick % 2) { rect(ctx, x, y, 1, 1, "#1c1c28"); rect(ctx, x + 8, y, 1, 1, "#1c1c28"); }
+    rect(ctx, cx, y + 2, 1, 1, tick % 6 < 3 ? "#bffcff" : cyan);
+    // A ratos el holograma se apaga un instante o se le corre una fila.
+    var g = hash2(Math.floor(f.id), tick);
+    if (g < 0.04) return;
+    var glitchRow = g < 0.16 ? Math.floor(g * 100) % 9 : -1, gx = glitchRow >= 0 ? (g < 0.1 ? 2 : -2) : 0;
+    var hx = cx - 11, hy = y + 7;
+    // Haz desde la lente que se abre hacia el holograma.
+    ctx.globalAlpha = 0.12;
+    for (var r = 0; r < 4; r++) rect(ctx, cx - r * 3, y + 3 + r, r * 6 + 1, 1, cyan);
+    for (r = 0; r < 9; r++) {
+        var ox = r === glitchRow ? gx : 0, edge = r === 0 || r === 8;
+        ctx.globalAlpha = edge ? 0.45 : (r % 2 ? 0.1 : 0.2);
+        rect(ctx, hx + ox, hy + r, 23, 1, cyan);
+        if (!edge) {
+            ctx.globalAlpha = 0.45;
+            rect(ctx, hx + ox, hy + r, 1, 1, cyan);
+            rect(ctx, hx + ox + 22, hy + r, 1, 1, cyan);
+        }
+    }
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#c8fcff";
+    var dots = clockDots(t);
+    for (var i = 0; i < dots.length; i++) {
+        var dy = dots[i][1] + 2;
+        ctx.fillRect(hx + 3 + dots[i][0] + (dy === glitchRow ? gx : 0), hy + dy, 1, 1);
+    }
+    ctx.globalAlpha = 1;
 }
 
 function drawBlimp(ctx, b, P, t) {
