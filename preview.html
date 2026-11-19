@@ -23,6 +23,13 @@ function hourNow() { var d = new Date(); return fixedHour !== null ? fixedHour :
 if (q.has("rain")) { world.rain = world.rainTarget = +q.get("rain"); world.timers.weather = 1e9; }
 // weather=clear|rain|storm|snow|fog|rainbow|fireworks fija un escenario de clima.
 if (q.has("weather")) setWeather(world, q.get("weather"));
+// flyer=banner|skywrite|... saca ese reloj volador de inmediato (aunque no le toque por hora o fecha).
+if (q.has("flyer")) {
+  var fk = q.get("flyer");
+  world.flyer = FLYERS[fk].make(world, +(q.get("dir") || 1), Math.random);
+  world.flyer.kind = fk;
+  world.flyerIdx = FLYER_ORDER.indexOf(fk);
+}
 
 function layer(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 var sky = layer(W, H), clouds = layer(W * 2, H), city = layer(W, H), ambient = layer(W, H), life = layer(W, H), front = layer(W, H);

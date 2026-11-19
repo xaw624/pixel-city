@@ -75,7 +75,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
 (segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`, `cyber`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
-`rainbow`, `fireworks`; llama a `setWeather` y congela el clima).
+`rainbow`, `fireworks`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`).
 
 ## Trampas conocidas
 
@@ -98,8 +98,11 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
 - Anuncios de azotea: `BIG_ADS` (animales animados) y `SMALL_ADS` (íconos); cada cartel rota con
   `adState`. La cara va en `drawAdFace` (ambiente) y el marco en `drawBillboard` (ciudad). No cambies
   las llamadas a `R()` al generar carteles: cambiarían la ciudad de la semilla fija.
-- Reloj volador: `w.blimp` es el dirigible (sin `kind`, capa ambiental) o, solo de día, la avioneta
-  con cartel (`kind: "banner"`, capa de vida porque es rápida). Ambos sacan la hora de `clockDots`.
+- Relojes voladores: `w.flyer` es el que cruza ahora; los tipos están en `FLYERS` (con `ok`, `make`,
+  `draw` y opcionales `step` y `slow`) y se turnan en el orden de `FLYER_ORDER`, saltando los que no
+  pueden salir por hora, clima o escenario (el dirigible siempre puede). Los lentos (`slow`) van en la
+  capa ambiental; los demás, en la de vida. La hora sale de `clockDots`. Para ver uno ya:
+  `preview.html?flyer=skywrite&live=1` (`dir=-1` para que cruce al revés).
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
 - Al tocar lo común, verifica que la ciudad no cambie: renderiza `drawSky`/`drawCity`/`drawFront`
   con hora y `t` fijos antes y después, y compara con `magick compare -metric AE` (debe dar 0).

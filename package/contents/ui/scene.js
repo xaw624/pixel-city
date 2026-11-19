@@ -285,8 +285,10 @@ function initLife(w, R) {
     w.drops = [];
     w.splashes = [];
     w.meteors = [];
-    w.blimp = { x: Math.round(W * (0.2 + R() * 0.3)), y: ri(R, 16, 34), dir: 1, speed: 5 };
-    w.timers = { blimp: 60, person: 0, flock: 6, gull: 12, car: 0, boat: 15, plane: 25, meteor: 150, pigeon: 5, weather: 900 + R() * 1200,
+    // Reloj volador (ver FLYERS): empieza el dirigible, a media pantalla.
+    w.flyer = { kind: "blimp", x: Math.round(W * (0.2 + R() * 0.3)), y: ri(R, 16, 34), dir: 1, speed: 5, m: 24 };
+    w.flyerIdx = 0;
+    w.timers = { flyer: 60, person: 0, flock: 6, gull: 12, car: 0, boat: 15, plane: 25, meteor: 150, pigeon: 5, weather: 900 + R() * 1200,
         fog: 20, bolt: 8, show: 40, rocket: 0 };
     w.rain = 0;
     w.rainTarget = 0;
@@ -1383,20 +1385,19 @@ function step(w, dt, hour, P) {
         if (pl.x < -10 || pl.x > W + 10) w.planes.splice(i, 1);
     }
 
-    // Reloj volador: el dirigible o, de día, una avioneta con cartel. Cruza y vuelve a salir al rato.
-    if (w.blimp) {
-        var zb = w.blimp, zm = zb.kind === "banner" ? 6 + BANNER_ROPE + BANNER_W + 2 : 24;
-        zb.x += zb.dir * zb.speed * dt;
-        if (zb.dir > 0 ? zb.x > W + zm : zb.x < -zm) { w.blimp = null; T.blimp = 8 + R() * 12; }
-    } else {
-        T.blimp -= dt;
-        if (T.blimp <= 0) {
-            var zd = R() < 0.5 ? 1 : -1;
-            if (hour > 7.5 && hour < 18 && R() < 0.5)
-                w.blimp = { kind: "banner", x: zd > 0 ? -8 : W + 8, y: 8 + R() * 22, dir: zd, speed: 9 + R() * 3 };
-            else
-                w.blimp = { x: zd > 0 ? -22 : W + 22, y: 16 + R() * 20, dir: zd, speed: 4.5 + R() * 1.5 };
+    // Relojes voladores: cruzan de uno en uno y se turnan en el orden de FLYER_ORDER.
+    var fy = w.flyer;
+    if (fy) {
+        var FD = FLYERS[fy.kind], done;
+        if (FD.step) done = FD.step(fy, w, dt, R);
+        else {
+            fy.x += fy.dir * fy.speed * dt;
+            done = fy.dir > 0 ? fy.x > W + fy.m : fy.x < -fy.m;
         }
+        if (done) { w.flyer = null; T.flyer = 8 + R() * 12; }
+    } else {
+        T.flyer -= dt;
+        if (T.flyer <= 0) nextFlyer(w, hour, R);
     }
 
     // Estrellas fugaces.
@@ -1697,7 +1698,7 @@ function drawAmbient(ctx, w, P, t) {
     }
 
     // El dirigible va delante de los edificios, sus luces LED y antenas.
-    if (w.blimp && !w.blimp.kind) drawBlimp(ctx, w.blimp, P, t);
+    if (w.flyer && FLYERS[w.flyer.kind].slow) FLYERS[w.flyer.kind].draw(ctx, w.flyer, P, t, w);
 
     // Jirones de neblina que se arrastran despacio entre los edificios y sobre el agua.
     if (P.fog > 0.05) {
@@ -1806,8 +1807,8 @@ function drawLife(ctx, w, P, t) {
         }
     }
 
-    // La avioneta con cartel va aquí y no en el ambiente: es rápida y a 4 fps daría saltos.
-    if (w.blimp && w.blimp.kind === "banner") drawBannerPlane(ctx, w.blimp, P, t);
+    // Los relojes voladores rápidos van aquí y no en el ambiente: a 4 fps darían saltos.
+    if (w.flyer && !FLYERS[w.flyer.kind].slow) FLYERS[w.flyer.kind].draw(ctx, w.flyer, P, t, w);
 
     // Bandadas.
     for (i = 0; i < w.flocks.length; i++) {
@@ -2160,13 +2161,54 @@ function drawBillboard(ctx, bb, c, P, t) {
 var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "111001111001111", "101101111001001",
               "111100111001111", "111100111101111", "111001001001001", "111101111101111", "111101111001111"];
 
+// ---------- relojes voladores ----------
+// Uno a la vez cruza el cielo con la hora y se turnan en el orden de FLYER_ORDER, saltando los que no
+// pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
+// draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
+// línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
+var FLYER_ORDER = ["blimp", "banner", "skywrite"];
+var FLYERS = {
+    blimp: {
+        slow: true,
+        ok: function () { return true; },
+        make: function (w, d, R) { return { x: d > 0 ? -22 : w.W + 22, y: 16 + R() * 20, dir: d, speed: 4.5 + R() * 1.5, m: 24 }; },
+        draw: drawBlimp
+    },
+    banner: {
+        ok: function (w, h) { return h > 7.5 && h < 18; },
+        make: function (w, d, R) {
+            return { x: d > 0 ? -8 : w.W + 8, y: 8 + R() * 22, dir: d, speed: 9 + R() * 3, m: 6 + BANNER_ROPE + BANNER_W + 2 };
+        },
+        draw: drawBannerPlane
+    },
+    skywrite: {
+        ok: function (w, h) { return h > 8 && h < 17.5 && w.rain < 0.05 && w.fog < 0.2; },
+        make: makeSkywrite,
+        step: stepSkywrite,
+        draw: drawSkywrite
+    }
+};
+
+// Saca el siguiente reloj volador que pueda salir (el dirigible siempre puede).
+function nextFlyer(w, hour, R) {
+    var d = R() < 0.5 ? 1 : -1, n = FLYER_ORDER.length;
+    for (var i = 1; i <= n; i++) {
+        var k = (w.flyerIdx + i) % n, kind = FLYER_ORDER[k];
+        if (!FLYERS[kind].ok(w, hour)) continue;
+        w.flyerIdx = k;
+        w.flyer = FLYERS[kind].make(w, d, R);
+        w.flyer.kind = kind;
+        return;
+    }
+}
+
 // Pixeles [x, y] de la hora "HH:MM" con dígitos de 3×5 (17×5 en total); los dos puntos parpadean.
-function clockDots(t) {
+function clockDots(t, solid) {
     var now = new Date(t * 1000), hh = now.getHours(), mm = now.getMinutes();
     var digits = [Math.floor(hh / 10), hh % 10, -1, Math.floor(mm / 10), mm % 10], out = [], cx = 0;
     for (var i = 0; i < digits.length; i++) {
         if (digits[i] < 0) {
-            if (Math.floor(t) % 2 === 0) out.push([cx, 1], [cx, 3]);
+            if (solid || Math.floor(t) % 2 === 0) out.push([cx, 1], [cx, 3]);
             cx += 2;
             continue;
         }
@@ -2221,6 +2263,58 @@ function drawBannerPlane(ctx, b, P, t) {
         ctx.fillStyle = ink;
         for (var rr = 2; rr < 7; rr++) if (grid[k + "," + rr]) ctx.fillRect(sx, y0 + rr, 1, 1);
     }
+}
+
+// Escritura con humo ("skytyping"): cinco avionetas en fila vertical sueltan bocanadas al pasar,
+// como una impresora de puntos; cada fila de la hora es una avioneta. El humo dura un minuto.
+var SKY_PLANE = ["t....", "tbbbb", ".ww.."];
+var SKY_PLANE_PAL = { t: [52, 92, 196], b: [240, 240, 244], w: [52, 92, 196] };
+var SKY_GAP = 4, SKY_LIFE = 60;
+function makeSkywrite(w, d, R) {
+    var tw = 17 * SKY_GAP;
+    return { x: d > 0 ? -8 : w.W + 8, y: Math.round(6 + R() * 10), dir: d, speed: 16,
+             x0: Math.round(w.W * 0.1 + R() * Math.max(1, w.W * 0.8 - tw)),
+             dots: clockDots(Date.now() / 1000, true), col: 0, puffs: [] };
+}
+function stepSkywrite(f, w, dt) {
+    f.x += f.dir * f.speed * dt;
+    // Imprime cada columna de la hora cuando la cola de la formación la cruza.
+    while (f.col < 17) {
+        var c = f.dir > 0 ? f.col : 16 - f.col, cx = f.x0 + c * SKY_GAP;
+        if (f.dir > 0 ? f.x - 3 < cx : f.x + 3 > cx) break;
+        for (var i = 0; i < f.dots.length; i++)
+            if (f.dots[i][0] === c) f.puffs.push({ x: cx, y: f.y + f.dots[i][1] * SKY_GAP, age: 0 });
+        f.col++;
+    }
+    var alive = false;
+    for (i = 0; i < f.puffs.length; i++) {
+        var p = f.puffs[i];
+        p.age += dt;
+        // El viento se lleva el humo despacio; las filas a velocidades un poco distintas lo deshilachan.
+        p.x += (0.25 + (p.y % 3) * 0.08) * dt;
+        if (p.age < SKY_LIFE) alive = true;
+    }
+    return !alive && (f.dir > 0 ? f.x > w.W + 10 : f.x < -10);
+}
+function drawSkywrite(ctx, f, P, t, w) {
+    var smoke = css(mix(lit([252, 252, 255], P), P.cl, 0.15));
+    ctx.fillStyle = smoke;
+    for (var i = 0; i < f.puffs.length; i++) {
+        var p = f.puffs[i], a = p.age;
+        if (a >= SKY_LIFE) continue;
+        // Crece al salir, se mantiene legible medio minuto y luego se infla y se desvanece.
+        var s = a < 0.4 ? 1 : a < 1 ? 2 : a < 30 ? 3 : 3 + Math.floor((a - 30) / 10);
+        ctx.globalAlpha = a < 30 ? 0.92 : 0.92 * (1 - (a - 30) / (SKY_LIFE - 30));
+        var x0 = Math.round(p.x) - Math.floor(s / 2), y0 = p.y - Math.floor(s / 2);
+        for (var r = 0; r < s; r++) {
+            var ins = s >= 4 && (r === 0 || r === s - 1) ? 1 : 0;
+            skyDot(ctx, w, x0 + ins, y0 + r, smoke, s - ins * 2);
+        }
+    }
+    ctx.globalAlpha = 1;
+    if (f.dir > 0 ? f.x > w.W + 10 : f.x < -10) return;
+    var col = function (c) { return css(lit(c, P)); };
+    for (var k = 0; k < 5; k++) sprite(ctx, SKY_PLANE, Math.round(f.x) - 2, f.y + k * SKY_GAP - 1, f.dir < 0, SKY_PLANE_PAL, col);
 }
 
 function drawBlimp(ctx, b, P, t) {
