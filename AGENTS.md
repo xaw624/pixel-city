@@ -47,9 +47,13 @@ la configuración del fondo anterior se conserva.
 - `package/contents/ui/main.qml`: `WallpaperItem`. Apila lienzos (cielo, nubes, ciudad, ambiente,
   vida, primer plano), los escala sin suavizado y maneja temporizadores y la pausa.
 - `package/contents/ui/scene.js`: todo el motor (generación, paleta por hora, simulación, dibujo).
-  Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador. Tiene dos escenas
-  (`city` y `beach`, ajuste "Escenario" = `configuration.Scene`): comparten cielo, clima y vida, y
-  cada una pone su paisaje en `drawCity`/`drawFront` (la playa en `drawBeach`/`drawPalms`).
+  Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador. Escenas (ajuste
+  "Escenario" = `configuration.Scene`): `city` es la base; las demás (`beach`, `mountain`) están en
+  la tabla `SCENES` al final con sus funciones `create`, `draw`, `front` y opcionales `ambient`,
+  `step`, `life` y `tint`. Comparten cielo, clima y vida. Para agregar una: escribe esas funciones,
+  regístrala en `SCENES` y en la lista `scenes` de `config.qml`. Animales que caminan entre la gente
+  van en `w.critters` con su dibujo en `CRITTERS`. Banderas útiles: `w.noSnow`, `w.alwaysSnow`,
+  `w.minSnow`, `w.noGulls`, `w.noBoats`, `w.noWater`, `w.lanes`, `w.span`.
   Sigue en un solo archivo porque los JS de QML no comparten globales entre archivos.
 - `preview.html`, `catalog.html`, `anuncios.html`: arneses para probar en el navegador.
 
@@ -63,7 +67,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 ```
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
-(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
+(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
 `rainbow`, `fireworks`; llama a `setWeather` y congela el clima).
 
 ## Trampas conocidas
@@ -92,6 +96,10 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   con hora y `t` fijos antes y después, y compara con `magick compare -metric AE` (debe dar 0).
 - Playa: sin nieve (`w.noSnow`), el sol recorre `w.span` para no esconderse tras el cabo y los
   carriles de gente están en `w.lanes` (orilla y delante de las sombrillas, que son fijas).
+- `w.sky[x]` (silueta contra el cielo) debe existir en toda escena: recorta fuegos y relámpagos, y
+  fuera de la ciudad oculta el brillo del sol en el agua cuando el sol está detrás de un cerro.
+- Montaña: las canoas van en la parte lejana del lago (`w.yW + 1..5`) para no pasar delante de los
+  pinos de la orilla ni de la cabaña.
 
 ## Estilo
 

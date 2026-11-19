@@ -2,10 +2,11 @@
 // Todo se dibuja con fillRect en coordenadas enteras sobre un lienzo de baja resolución que luego se
 // escala sin suavizado, así cada "pixel" del arte ocupa varios pixeles reales de la pantalla.
 //
-// Escenas: create(W, H, seed, { scene }) arma la ciudad ("city", por omisión) o la playa ("beach").
-// Lo común (paleta, cielo, nubes, clima, gente, barcos, aves, dirigible) se comparte; cada escena
-// pone su paisaje en drawCity/drawFront y sus extras con w.scene. Todo vive en este archivo porque
-// los JS importados en QML no comparten variables globales y el navegador no entiende `.import`.
+// Escenas: create(W, H, seed, { scene }) arma la ciudad ("city", por omisión) o una de SCENES
+// (playa, montaña, ...; la tabla está al final). Lo común (paleta, cielo, nubes, clima, gente,
+// aves, dirigible) se comparte; cada escena pone su paisaje y sus extras con las funciones de su
+// entrada en SCENES. Todo vive en este archivo porque los JS importados en QML no comparten
+// variables globales y el navegador no entiende `.import`.
 
 // ---------- utilidades ----------
 
@@ -119,6 +120,8 @@ function palette(w, hour) {
         P.cl = mix(P.cl, P.fogc, fog * 0.3);
         P.cs = mix(P.cs, P.fogc, fog * 0.4);
     }
+    var S = w && SCENES[w.scene];
+    if (S && S.tint) S.tint(P, w);
     P.haze = mix(P.hor, P.mid, 0.35);
     P.water = mix(mix(P.hor, P.mid, 0.6), [28, 36, 72], 0.3);
     P.waterDeep = mix(P.water, [20, 24, 52], 0.35);
@@ -172,7 +175,7 @@ var DEPTH = [
 
 // opts.style fuerza un estilo para los edificios cercanos (lo usa la hoja de propuestas).
 function create(W, H, seed, opts) {
-    if (opts && opts.scene === "beach") return createBeach(W, H, seed, opts);
+    if (opts && SCENES[opts.scene]) return SCENES[opts.scene].create(W, H, seed, opts);
     var R = rng(seed || 7), i, j;
     var w = { W: W, H: H, opts: opts || {}, scene: "city" };
     w.yW = Math.round(H * 0.60);       // línea del agua
@@ -908,7 +911,7 @@ function drawRoofSnow(ctx, w, d, P) {
 
 // Capa de la escena (ciudad o playa): todo lo fijo que se repinta cada ~30 s.
 function drawCity(ctx, w, P, t) {
-    if (w.scene === "beach") return drawBeach(ctx, w, P, t);
+    if (SCENES[w.scene]) return SCENES[w.scene].draw(ctx, w, P, t);
     var W = w.W, H = w.H, hour = P.hour;
     ctx.clearRect(0, 0, W, H);
     w.refl = [];
@@ -1040,7 +1043,7 @@ function drawCity(ctx, w, P, t) {
 
 function drawFront(ctx, w, P) {
     ctx.clearRect(0, 0, w.W, w.H);
-    if (w.scene === "beach") return drawPalms(ctx, w, P);
+    if (SCENES[w.scene]) return SCENES[w.scene].front(ctx, w, P);
     var base = lit([62, 86, 84], P), dark = css(mul(base, 0.68)), mid = css(base), light = css(mix(base, [190, 220, 170], 0.25));
     // Con nieve, lo alto de cada copa se pinta blanco.
     if (P.snowCover > 0.15) light = css(mix(mix(base, [190, 220, 170], 0.25), lit([236, 240, 248], P), clamp(P.snowCover * 1.2, 0, 1)));
@@ -1070,6 +1073,8 @@ var TOPS = ["#d95763", "#5b8dd9", "#f2c14e", "#6abe8a", "#e8e8f0", "#a06cc8", "#
 var BOTTOMS = ["#2d3047", "#3d5a80", "#4a4a4a", "#6b4e3d", "#2a2a2a", "#8a8fa0", "#5a4a6a"];
 var UMBRELLAS = ["#e04a5a", "#3a7ad0", "#f0c040", "#2a2a36", "#50b080", "#c060c0"];
 var DOGS = ["#c89a60", "#3a3030", "#f0e8dc", "#8a6a4a"];
+var PACKS = ["#d0603a", "#3a6a9a", "#5a8a4a", "#c8a040", "#8a4a7a"];
+var SCARVES = ["#d03a3a", "#3a6ad0", "#f0c040", "#40a070", "#e8e8f0", "#c060a0"];
 var CARS = ["#d04848", "#4870d0", "#e8e8e8", "#303038", "#e0b040", "#60a070", "#9090a0"];
 
 function lanes(w) {
@@ -1101,11 +1106,17 @@ function spawnPerson(w, onScreen) {
 function newPerson(w, x, y, dir, speed, kid) {
     var R = Math.random;
     function c(a) { return rgb(a[Math.floor(R() * a.length)]); }
+    var sc = w.scene;
     return {
         x: x, y: y, dir: dir, speed: speed, dist: R() * 12, kid: kid,
         skin: c(SKINS), hair: c(HAIRS), top: c(TOPS), bottom: c(BOTTOMS),
         style: Math.floor(R() * 3), skirt: !kid && R() < 0.2, bag: !kid && R() < 0.25,
-        umbrella: w.rain > 0.3 && R() < 0.85 ? c(UMBRELLAS) : null
+        umbrella: w.rain > 0.3 && R() < 0.85 ? c(sc === "cyber" ? NEON : UMBRELLAS) : null,
+        // Ropa según la escena: mochila de excursión, bufanda y gorro, sombrero de paja, paraguas de neón.
+        pack: sc === "mountain" && !kid && R() < 0.6 ? c(PACKS) : null,
+        scarf: sc === "village" ? c(SCARVES) : null,
+        hat: sc === "farm" && !kid && R() < 0.45,
+        neon: sc === "cyber"
     };
 }
 
@@ -1131,7 +1142,7 @@ function step(w, dt, hour, P) {
         w.rainTarget = R() < w.rainChance ? 0.5 + R() * 0.5 : 0;
         if (w.rain < 0.05) {
             var m = w.month;
-            w.snow = w.rainTarget > 0 && !w.noSnow && R() < (m === 11 || m <= 1 ? 0.55 : (m === 2 || m === 10 ? 0.15 : 0));
+            w.snow = w.rainTarget > 0 && (w.alwaysSnow || (!w.noSnow && R() < (m === 11 || m <= 1 ? 0.55 : (m === 2 || m === 10 ? 0.15 : 0))));
         }
         w.storm = w.rainTarget > 0.75 && !w.snow && R() < 0.6;
         T.weather = (w.rainTarget > 0 ? 300 : 900) + R() * 1200;
@@ -1141,7 +1152,7 @@ function step(w, dt, hour, P) {
 
     // La nieve se acumula mientras cae y se derrite despacio cuando para.
     if (w.snow && w.rain > 0.2) w.snowCover = Math.min(1, w.snowCover + dt * w.rain / 500);
-    else if (!w.lock) w.snowCover = Math.max(0, w.snowCover - dt / 1500);
+    else if (!w.lock) w.snowCover = Math.max(w.minSnow || 0, w.snowCover - dt / 1500);
 
     // Neblina matinal: aparece algunas madrugadas y se disipa a media mañana.
     if (!w.lock) {
@@ -1312,7 +1323,7 @@ function step(w, dt, hour, P) {
     T.gull -= dt;
     if (T.gull <= 0) {
         T.gull = 30 + R() * 60;
-        if (P.amb > 0.4) {
+        if (P.amb > 0.4 && !w.noGulls) {
             var gd = R() < 0.5 ? 1 : -1;
             w.gulls.push({ x: gd > 0 ? -10 : W + 10, y: w.yW - 30 + R() * 50, dir: gd, speed: 16 + R() * 10, ph: R() * 6 });
         }
@@ -1343,7 +1354,7 @@ function step(w, dt, hour, P) {
     T.boat -= dt;
     if (T.boat <= 0) {
         T.boat = 18 + R() * 35;
-        if (w.boats.length < 2) {
+        if (w.boats.length < 2 && !w.noBoats) {
             var bd = R() < 0.5 ? 1 : -1, br = R();
             var lane = w.boats.length && w.boats[0].far ? false : R() < 0.5;
             w.boats.push({
@@ -1421,7 +1432,8 @@ function step(w, dt, hour, P) {
         if (w.splashes[i].life <= 0) w.splashes.splice(i, 1);
     }
 
-    if (w.scene === "beach") stepBeach(w, dt, hour, P);
+    var S = SCENES[w.scene];
+    if (S && S.step) S.step(w, dt, hour, P);
 }
 
 var FIREWORKS = ["#ff5f6d", "#ffd35f", "#5ff2ff", "#9dff6a", "#c08cff", "#ffffff", "#ff9a3c", "#ff7ad9"];
@@ -1453,7 +1465,7 @@ function setWeather(w, kind) {
     w.snow = w.storm = false;
     w.fog = w.fogTarget = 0;
     w.rainbow = w.wet = 0;
-    w.snowCover = 0;
+    w.snowCover = w.minSnow || 0;
     w.show = 0;
     if (kind === "rain") w.rain = w.rainTarget = 0.8;
     else if (kind === "storm") { w.rain = w.rainTarget = 1; w.storm = true; w.timers.bolt = 0.5; }
@@ -1490,12 +1502,18 @@ function drawPerson(ctx, p, P) {
     var skin = p.cc[0], hair = p.cc[1], top = p.cc[2], bot = p.cc[3], shoe = p.cc[4];
 
     if (p.kid) {
+        if (p.scarf) {
+            var kc = css(lit(p.scarf, P));
+            spr(ctx, X, Y, d, 1, -1, 3, 1, kc);
+            spr(ctx, X, Y, d, 1, 2, 3, 1, kc);
+        }
         spr(ctx, X, Y, d, 1, 0, 3, 1, hair);
         spr(ctx, X, Y, d, 1, 1, 1, 1, hair);
         spr(ctx, X, Y, d, 2, 1, 2, 1, skin);
         spr(ctx, X, Y, d, 1, 2, 3, 3, top);
         if (f === 0) spr(ctx, X, Y, d, 4, 3, 1, 2, top);
         if (f === 2) spr(ctx, X, Y, d, 0, 3, 1, 2, top);
+        if (p.scarf) spr(ctx, X, Y, d, 1, 2, 3, 1, css(lit(p.scarf, P)));
         spr(ctx, X, Y, d, 1, 5, 3, 1, bot);
         if (f % 2 === 0) { spr(ctx, X, Y, d, 1, 6, 1, 2, bot); spr(ctx, X, Y, d, 3, 6, 1, 2, bot); spr(ctx, X, Y, d, 1, 8, 1, 1, shoe); spr(ctx, X, Y, d, 3, 8, 1, 1, shoe); }
         else { spr(ctx, X, Y, d, 2, 6, 1, 2, bot); spr(ctx, X, Y, d, 2, 8, 2, 1, shoe); }
@@ -1519,6 +1537,25 @@ function drawPerson(ctx, p, P) {
     else if (swing === -1) { spr(ctx, X, Y, d, 0, 4, 1, 2, top); spr(ctx, X, Y, d, 0, 6, 1, 1, skin); }
     else spr(ctx, X, Y, d, 3, 7, 1, 1, skin);
     if (p.bag) spr(ctx, X, Y, d, 0, 6, 1, 2, css(lit([120, 80, 60], P)));
+    if (p.pack) {
+        var pk = lit(p.pack, P);
+        spr(ctx, X, Y, d, -1, 3, 2, 5, css(pk));
+        spr(ctx, X, Y, d, -1, 3, 2, 1, css(mix(pk, [255, 255, 255], 0.25)));
+        spr(ctx, X, Y, d, -1, 2, 1, 1, css(lit([220, 210, 180], P)));      // colchoneta enrollada
+    }
+    if (p.scarf) {
+        var scf = css(lit(p.scarf, P));
+        spr(ctx, X, Y, d, 1, 3, 3, 1, scf);
+        spr(ctx, X, Y, d, 0, 3 + (f % 2), 1, 2, scf);                       // punta que ondea
+        spr(ctx, X, Y, d, 1, 0, 3, 1, scf);                                 // gorro con pompón
+        spr(ctx, X, Y, d, 2, -1, 1, 1, css(lit([240, 240, 244], P)));
+    }
+    if (p.hat) {
+        var straw = lit([216, 184, 108], P);
+        spr(ctx, X, Y, d, 0, 0, 5, 1, css(straw));
+        spr(ctx, X, Y, d, 1, -1, 3, 1, css(mix(straw, [255, 240, 200], 0.2)));
+        spr(ctx, X, Y, d, 1, 0, 3, 1, css(mul(straw, 0.8)));
+    }
     // Piernas.
     var leg = p.skirt ? skin : bot;
     if (p.skirt) spr(ctx, X, Y, d, 0, 8, 5, 2, bot);
@@ -1536,12 +1573,17 @@ function drawPerson(ctx, p, P) {
         spr(ctx, X, Y, d, 2, 12, 2, 1, shoe);
     }
     if (p.umbrella) {
-        var uc = lit(p.umbrella, P);
+        // El de neón brilla con su propia luz.
+        var uc = p.neon ? mix(p.umbrella, lit(p.umbrella, P), 0.5) : lit(p.umbrella, P);
         spr(ctx, X, Y, d, 2, -2, 1, 2, css(lit([50, 50, 60], P)));
         spr(ctx, X, Y, d, 0, -4, 5, 1, css(uc));
         spr(ctx, X, Y, d, 1, -5, 3, 1, css(mix(uc, [255, 255, 255], 0.2)));
-        var ux = d > 0 ? X - 1 : X - 1;
-        rect(ctx, ux, Y - 3, 7, 1, css(mul(uc, 0.8)));
+        rect(ctx, X - 1, Y - 3, 7, 1, css(p.neon ? mix(p.umbrella, [255, 255, 255], 0.4) : mul(uc, 0.8)));
+        if (p.neon && P.night > 0.3) {
+            ctx.globalAlpha = 0.18 * P.night;
+            rect(ctx, X - 2, Y - 2, 9, 4, css(p.umbrella));
+            ctx.globalAlpha = 1;
+        }
     }
     if (p.dog) {
         var dc = css(lit(p.dog.col, P)), dx = X - d * 8, dy = Math.round(p.y) - 3;
@@ -1667,7 +1709,9 @@ function drawAmbient(ctx, w, P, t) {
         ctx.globalAlpha = 1;
     }
 
-    if (w.scene === "beach") drawBeachAmbient(ctx, w, P, t);
+    var S = SCENES[w.scene];
+    if (S && S.ambient) S.ambient(ctx, w, P, t);
+    if (w.noWater) return;
 
     // Ondas que se desplazan sobre el agua.
     var wTop = w.yW, wBot = w.wBot || w.yP + 6, wh = wBot - wTop;
@@ -1692,6 +1736,8 @@ function drawAmbient(ctx, w, P, t) {
     ctx.globalAlpha = 1;
     var sun = sunPos(w, P.hour), moon = moonPos(w, P.hour);
     var src = sun || moon;
+    // Fuera de la ciudad, el brillo solo aparece si el sol o la luna se ven (no tras un cerro).
+    if (src && w.scene !== "city" && src.y >= w.sky[clamp(src.x, 0, W - 1)]) src = null;
     if (src && P.rain < 0.6) {
         var gc = sun ? css(mix([255, 246, 214], [255, 170, 110], sun.low)) : "#f4f1dc";
         for (var y = wTop + 1; y < wBot; y += 2) {
@@ -1770,7 +1816,8 @@ function drawLife(ctx, w, P, t) {
 
     // Barcos.
     for (i = 0; i < w.boats.length; i++) drawBoat(ctx, w.boats[i], P, t);
-    if (w.swimmers) for (i = 0; i < w.swimmers.length; i++) drawSwimmer(ctx, w.swimmers[i], P, t);
+    var S = SCENES[w.scene];
+    if (S && S.life) S.life(ctx, w, P, t);
 
     // Autos.
     for (i = 0; i < w.cars.length; i++) drawCar(ctx, w.cars[i], P);
@@ -1803,11 +1850,11 @@ function drawLife(ctx, w, P, t) {
         else ground.push({ y: g.state === "idle" || g.state === "peck" ? g.y + 2 : 999, g: g });
     }
     for (i = 0; i < w.people.length; i++) ground.push({ y: w.people[i].y, p: w.people[i] });
-    if (w.crabs) for (i = 0; i < w.crabs.length; i++) ground.push({ y: w.crabs[i].y, c: w.crabs[i] });
+    if (w.critters) for (i = 0; i < w.critters.length; i++) ground.push({ y: w.critters[i].y, c: w.critters[i] });
     ground.sort(function (a, b) { return a.y - b.y; });
     for (i = 0; i < ground.length; i++) {
         if (ground[i].p) drawPerson(ctx, ground[i].p, P);
-        else if (ground[i].c) drawCrab(ctx, ground[i].c, P, t);
+        else if (ground[i].c) CRITTERS[ground[i].c.kind](ctx, ground[i].c, P, t);
         else drawPigeon(ctx, ground[i].g, P, t);
     }
 
@@ -2191,6 +2238,7 @@ function drawCar(ctx, car, P) {
 }
 
 function drawBoat(ctx, b, P, t) {
+    if (b.kind === "canoe") return drawCanoe(ctx, b, P, t);
     var x = Math.round(b.x), y = b.y, d = b.dir;
     var hull = lit([54, 60, 92], P), white = lit([240, 240, 244], P), red = lit([200, 70, 70], P);
     var night = P.night > 0.4;
@@ -2368,7 +2416,7 @@ function createBeach(W, H, seed, opts) {
 
     initLife(w, R);
     w.swimmers = [];
-    w.crabs = [];
+    w.critters = [];
     w.timers.swim = 0;
     w.timers.crab = 8;
     return w;
@@ -2666,25 +2714,30 @@ function drawBeachAmbient(ctx, w, P, t) {
     if (P.night > 0.5 && P.rain < 0.2 && (hour >= 19 || hour < 1.5)) {
         for (i = 0; i < w.spots.length; i++) {
             if (w.spots[i].kind !== "fire") continue;
-            var fx = w.spots[i].x, fy = w.spots[i].y - 2, tick = Math.floor(t * 4);
-            ctx.globalAlpha = 0.12;
-            ell(ctx, fx, fy + 2, 18, 5, "#ffb060");
-            ell(ctx, fx, fy - 4, 9, 7, "#ffb060");
-            ctx.globalAlpha = 1;
-            for (k = -2; k <= 2; k++) {
-                var fh = 2 + Math.floor(hash2(k + 9, tick) * (4 - Math.abs(k)));
-                rect(ctx, fx + k, fy - fh, 1, fh, "#ff8a30");
-                rect(ctx, fx + k, fy - Math.max(1, fh - 2), 1, Math.max(1, fh - 2), "#ffd060");
-                if (hash2(k, tick + 3) < 0.4) rect(ctx, fx + k, fy - fh - 1, 1, 1, "#e85030");
-            }
-            for (k = 0; k < 3; k++) {
-                var up = (t * 6 + k * 5) % 14;
-                ctx.globalAlpha = 1 - up / 14;
-                rect(ctx, fx - 1 + Math.round(Math.sin(t * 2 + k * 2) * 2), fy - 6 - up, 1, 1, "#ffc060");
-            }
-            ctx.globalAlpha = 1;
+            drawFlames(ctx, w.spots[i].x, w.spots[i].y - 2, t);
         }
     }
+}
+
+// Llamas, resplandor y chispas de una fogata con base en (fx, fy).
+function drawFlames(ctx, fx, fy, t) {
+    var tick = Math.floor(t * 4), k;
+    ctx.globalAlpha = 0.12;
+    ell(ctx, fx, fy + 2, 18, 5, "#ffb060");
+    ell(ctx, fx, fy - 4, 9, 7, "#ffb060");
+    ctx.globalAlpha = 1;
+    for (k = -2; k <= 2; k++) {
+        var fh = 2 + Math.floor(hash2(k + 9, tick) * (4 - Math.abs(k)));
+        rect(ctx, fx + k, fy - fh, 1, fh, "#ff8a30");
+        rect(ctx, fx + k, fy - Math.max(1, fh - 2), 1, Math.max(1, fh - 2), "#ffd060");
+        if (hash2(k, tick + 3) < 0.4) rect(ctx, fx + k, fy - fh - 1, 1, 1, "#e85030");
+    }
+    for (k = 0; k < 3; k++) {
+        var up = (t * 6 + k * 5) % 14;
+        ctx.globalAlpha = 1 - up / 14;
+        rect(ctx, fx - 1 + Math.round(Math.sin(t * 2 + k * 2) * 2), fy - 6 - up, 1, 1, "#ffc060");
+    }
+    ctx.globalAlpha = 1;
 }
 
 // Bañistas (de día y sin lluvia) y cangrejos que corren de lado por la orilla.
@@ -2713,13 +2766,13 @@ function stepBeach(w, dt, hour, P) {
     T.crab -= dt;
     if (T.crab <= 0) {
         T.crab = 25 + R() * 50;
-        if (w.crabs.length < 2 && P.rain < 0.5) {
+        if (w.critters.length < 2 && P.rain < 0.5) {
             var cd = R() < 0.5 ? 1 : -1;
-            w.crabs.push({ x: cd > 0 ? -6 : W + 6, y: w.yP + 3 + Math.floor(R() * 4), dir: cd, run: true, tm: 1 + R() * 2, dist: 0 });
+            w.critters.push({ kind: "crab", x: cd > 0 ? -6 : W + 6, y: w.yP + 3 + Math.floor(R() * 4), dir: cd, run: true, tm: 1 + R() * 2, dist: 0 });
         }
     }
-    for (i = w.crabs.length - 1; i >= 0; i--) {
-        var c = w.crabs[i];
+    for (i = w.critters.length - 1; i >= 0; i--) {
+        var c = w.critters[i];
         c.tm -= dt;
         if (c.tm <= 0) {
             c.run = !c.run;
@@ -2731,7 +2784,7 @@ function stepBeach(w, dt, hour, P) {
             if (Math.abs(q.x - c.x) < 10 && Math.abs(q.y - c.y) < 6) { c.run = true; c.dir = q.x < c.x ? 1 : -1; c.tm = 1.2; break; }
         }
         if (c.run) { c.x += c.dir * 11 * dt; c.dist += 11 * dt; }
-        if (c.x < -10 || c.x > W + 10) w.crabs.splice(i, 1);
+        if (c.x < -10 || c.x > W + 10) w.critters.splice(i, 1);
     }
 }
 
@@ -2811,3 +2864,585 @@ function drawProp(ctx, o, P, open, sand) {
         rect(ctx, o.dir > 0 ? x + 6 : x + 1, y - 2, 4, 1, sk);
     }
 }
+
+// ---------- escena: montaña ----------
+// Cordilleras con picos nevados que se reflejan en un lago, bosque de pinos y una cabaña con
+// chimenea y muelle en la orilla de enfrente. Excursionistas con mochila, venados al amanecer y al
+// atardecer, un águila que planea, canoas, peces que saltan, luciérnagas en verano y fogata de noche.
+
+// Cresta de una cordillera: picos triangulares (pendiente slope) más ruido por punto medio.
+function makeRidge(R, W, base, hiH, loH, nPeaks, slope, rough) {
+    var peaks = [], top = [], x, i;
+    for (i = 0; i < nPeaks; i++)
+        peaks.push({ x: (i + 0.2 + R() * 0.6) / nPeaks * W * 1.1 - W * 0.05, h: loH + R() * (hiH - loH), s: slope * (0.7 + R() * 0.6) });
+    var n = 1;
+    while (n < W) n *= 2;
+    var noise = [];
+    for (x = 0; x <= n; x++) noise.push(0);
+    for (var st = n; st > 1; st /= 2)
+        for (x = 0; x < n; x += st)
+            noise[x + st / 2] = (noise[x] + noise[x + st]) / 2 + (R() - 0.5) * rough * Math.min(st, 32) / 8;
+    // face[x]: 1 si la ladera mira a la izquierda (del lado izquierdo de su pico), -1 si a la derecha.
+    top.face = [];
+    for (x = 0; x < W; x++) {
+        var h = loH * 0.35, f = 0;
+        for (i = 0; i < peaks.length; i++) {
+            var hp = peaks[i].h - Math.abs(x - peaks[i].x) * peaks[i].s;
+            if (hp > h) { h = hp; f = x < peaks[i].x ? 1 : -1; }
+        }
+        top.push(Math.round(base - h + noise[x]));
+        top.face.push(f);
+    }
+    return top;
+}
+
+function createMountain(W, H, seed, opts) {
+    var R = rng(seed || 7), i, x, y;
+    var w = { W: W, H: H, opts: opts || {}, scene: "mountain", noGulls: true, noBoats: true };
+    w.yW = Math.round(H * 0.6);        // orilla lejana del lago, al pie de los cerros
+    w.base = w.yW;
+    w.axis = w.yW - 1;
+    w.yP = Math.round(H * 0.75);       // orilla de enfrente
+    w.wBot = w.yP;
+    w.ground = w.yP + 2;
+    w.windows = []; w.antennas = []; w.signs = []; w.tvs = []; w.leds = []; w.screens = [];
+    w.ads = []; w.bigAds = []; w.refl = []; w.layers = [[], [], []];
+    w.lamps = []; w.benches = []; w.trees = []; w.hedge = [];
+
+    // Picos nevados al fondo, cerros con bosque y lomas de pinos junto al lago.
+    w.ranges = [
+        makeRidge(R, W, w.yW, H * 0.37, H * 0.2, Math.round(W / 120) + 2, 0.8, 2.5),
+        makeRidge(R, W, w.yW, H * 0.2, H * 0.09, Math.round(W / 90) + 2, 0.45, 1.5),
+        makeRidge(R, W, w.yW, H * 0.08, H * 0.03, Math.round(W / 70) + 2, 0.3, 1)
+    ];
+    // Bosque sobre la loma de enfrente: pinos en fila sobre la cresta.
+    w.ridgePines = [];
+    for (x = ri(R, -4, 2); x < W + 4; x += ri(R, 3, 6)) w.ridgePines.push({ x: x, h: ri(R, 5, 11) });
+    // Línea de nieve de los picos (fila desde la que empieza la roca).
+    var hi = w.yW;
+    for (x = 0; x < W; x++) hi = Math.min(hi, w.ranges[0][x]);
+    w.snowLine = Math.round(hi + (w.yW - hi) * 0.4);
+
+    // Cabaña en un lado, con el muelle y la fogata hacia el centro.
+    var side = R() < 0.5 ? -1 : 1;
+    var cx = Math.round(side < 0 ? W * (0.16 + R() * 0.1) : W * (0.74 + R() * 0.1));
+    w.cabin = { x: cx, y: w.yP + 6, side: side, roof: rgb(pick(R, ["#8a3a32", "#3a5a4a", "#4a4a5a", "#7a4a2a"])) };
+    w.dock = { x: cx - side * 26, len: 30, dir: -side, y: w.yP - 2 };
+    w.fire = { x: cx - side * 30, y: w.yP + 24 };
+    w.chimney = { x: cx + side * 8, y: w.cabin.y - 34 };
+
+    // Pinos en la orilla de enfrente, lejos de la cabaña y el muelle.
+    w.pines = [];
+    for (x = ri(R, 4, 20); x < W - 4; x += ri(R, 14, 40)) {
+        if (Math.abs(x - cx) < 34 || Math.abs(x - w.dock.x - w.dock.dir * 15) < 22) continue;
+        w.pines.push({ x: x, y: w.yP + ri(R, 3, 6), h: ri(R, 16, 28) });
+    }
+
+    // Silueta contra el cielo: la cordillera más alta en cada columna, más los pinos de la loma.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(Math.min(w.ranges[0][x], w.ranges[1][x], w.ranges[2][x]));
+    for (i = 0; i < w.ridgePines.length; i++) {
+        var rp = w.ridgePines[i];
+        for (x = -2; x <= 2; x++) {
+            var px = rp.x + x;
+            if (px >= 0 && px < W) w.sky[px] = Math.min(w.sky[px], w.ranges[2][clamp(rp.x, 0, W - 1)] - rp.h + Math.abs(x) * 2);
+        }
+    }
+
+    genSky(w, R);
+
+    w.waterLines = [];
+    for (y = w.yW + 2; y < w.yP - 1; y += 2)
+        for (i = 0; i < Math.round(W / 34); i++)
+            w.waterLines.push({ x: ri(R, 0, W - 1), y: y, len: ri(R, 3, 12), light: R() < 0.5 });
+
+    // Pradera: pasto, flores, piedras y el sendero.
+    w.grass = [];
+    for (i = 0; i < Math.round(W * (H - w.ground) / 40); i++)
+        w.grass.push({ x: ri(R, 0, W - 1), y: ri(R, w.ground + 1, H - 1), light: R() < 0.5 });
+    w.flowers = [];
+    for (i = 0; i < Math.round(W / 9); i++)
+        w.flowers.push({ x: ri(R, 0, W - 1), y: ri(R, w.yP + 20, H - 2), col: rgb(pick(R, ["#f0e060", "#f4f0f0", "#c080e0", "#f08080", "#80b0f0"])) });
+    w.rocks = [];
+    for (i = 0; i < Math.round(W / 120) + 1; i++) w.rocks.push({ x: ri(R, 10, W - 10), y: ri(R, w.yP + 32, H - 6), r: ri(R, 3, 6) });
+    w.trailY = w.yP + 9;
+    w.lanes = [w.trailY + 2, w.trailY + 6];
+    for (y = w.yP + 34; y < H - 3; y += 7) w.lanes.push(y);
+
+    // Pinos grandes delante de todo, en las orillas de la pantalla.
+    w.bigPines = [
+        { x: side < 0 ? W - ri(R, 4, 16) : ri(R, 4, 16), y: H + 2, h: Math.round(H * (0.5 + R() * 0.1)) },
+        { x: side < 0 ? W - ri(R, 26, 40) : ri(R, 26, 40), y: H + 2, h: Math.round(H * (0.32 + R() * 0.08)) },
+        { x: side < 0 ? ri(R, -6, 4) : W - ri(R, -4, 6), y: H + 2, h: Math.round(H * (0.26 + R() * 0.06)) }
+    ];
+    w.bushes = [];
+    for (x = ri(R, -4, 10); x < W + 8; x += ri(R, 30, 70)) w.bushes.push({ x: x, r: ri(R, 4, 7) });
+
+    initLife(w, R);
+    w.critters = [];
+    w.eagle = null;
+    w.timers.deer = 5;
+    w.timers.eagle = 20;
+    w.timers.canoe = 10;
+    return w;
+}
+
+// Color de una cordillera según la profundidad (0 al fondo): más lejos, más del color del cielo.
+function rangeCol(c, P, d) {
+    var k = mix(mul(c, P.amb), P.hor, 0.1);
+    k = mix(k, [24, 26, 58], (1 - P.amb) * 0.35);
+    return mix(k, P.haze, [0.5, 0.28, 0.12][d]);
+}
+
+// Las tres cordilleras con nieve, bosque y pinos; también sirve para el reflejo del lago.
+function drawRanges(ctx, w, P) {
+    var W = w.W, yW = w.yW, x, y, d;
+    var sun = sunPos(w, P.hour);
+    // Luz de lado: por la mañana se iluminan las laderas que miran a la izquierda.
+    var side = sun ? clamp((W / 2 - sun.x) / (W * 0.3), -1, 1) * (1 - P.rain) : 0;
+    var sc = P.snowCover, snowLine = w.snowLine + Math.round(sc * (yW - w.snowLine) * 0.7);
+    var snow = lit([240, 244, 250], P), snowS = mix(lit([196, 206, 232], P), P.haze, 0.2);
+    var bases = [[116, 122, 150], [62, 92, 88], [44, 76, 62]];
+    for (d = 0; d < 3; d++) {
+        var top = w.ranges[d], base = rangeCol(bases[d], P, d);
+        var lightC = mix(base, [255, 240, 210], 0.16), darkC = mul(base, 0.8);
+        var dust = d === 1 ? clamp(sc * 1.4 - 0.3, 0, 0.8) : (d === 2 ? clamp(sc * 1.2 - 0.4, 0, 0.6) : 0);
+        for (x = 0; x < W; x++) {
+            // Cada pico tiene una cara de luz y otra de sombra, en tres tonos.
+            var t0 = top[x], amt = d === 2 ? 0 : top.face[x] * side;     // la loma de pinos va pareja
+            var col = amt > 0.25 ? lightC : (amt < -0.25 ? darkC : base);
+            if (dust > 0) col = mix(col, rangeCol([220, 226, 240], P, d), dust);
+            rect(ctx, x, t0, 1, yW - t0, css(col));
+            if (d === 0) {
+                // Nieve arriba de la línea (con orilla irregular) y vetas de roca.
+                var sl = snowLine + Math.round(5 * Math.sin(x * 0.11 + 1.7) + 3 * Math.sin(x * 0.29) + (hash2(x, 7) - 0.5) * 3);
+                if (t0 < sl) rect(ctx, x, t0, 1, sl - t0, css(amt < -0.25 ? snowS : snow));
+                if (hash2(x, 3) < 0.25) rect(ctx, x, Math.max(t0 + 2, sl) + Math.floor(hash2(x, 5) * 7), 1, 2, css(mul(col, 0.85)));
+            } else {
+                // Textura de bosque: puntos claros y oscuros.
+                for (y = t0 + 2; y < yW; y += 3)
+                    if (hash2(x * 7 + d, y) < 0.3) rect(ctx, x, y, 1, 1, css(hash2(x, y + d) < 0.5 ? darkC : mix(col, [255, 255, 255], 0.06)));
+            }
+        }
+        if (d === 2) {
+            var pc = mul(base, 0.85), pcs = css(pc), psn = css(mix(rangeCol([226, 232, 244], P, 2), pc, 0.2));
+            for (var i = 0; i < w.ridgePines.length; i++) {
+                var rp = w.ridgePines[i], ry = top[clamp(rp.x, 0, W - 1)];
+                for (var r = 0; r < rp.h; r++) {
+                    var hw = Math.floor(r * 0.35);
+                    rect(ctx, rp.x - hw, ry - rp.h + r, hw * 2 + 1, 1, pcs);
+                    if (sc > 0.3 && r % 3 === 0) rect(ctx, rp.x - hw, ry - rp.h + r, hw + 1, 1, psn);
+                }
+            }
+        }
+        // Neblina que separa las cordilleras.
+        if (P.fog > 0.02) {
+            var fh = Math.round(w.yW * 0.5), fa = [0.5, 0.4, 0.28][d] * P.fog;
+            ctx.fillStyle = css(P.fogc);
+            for (var fy = 0; fy < fh; fy += 2) {
+                var u = 1 - fy / fh;
+                ctx.globalAlpha = fa * u * u;
+                ctx.fillRect(0, yW - fy - 2, W, 2);
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+
+// Pino de varios pisos con base en (x, y) y altura h; la nieve se queda en lo alto de cada piso.
+function drawPine(ctx, x, y, h, P, k) {
+    var base = lit([40, 82, 62], P);
+    if (k) base = mix(base, P.haze, k);
+    var mid = css(base), dark = css(mul(base, 0.7)), light = css(mix(base, [180, 220, 150], 0.18));
+    var trunk = css(lit([86, 60, 44], P)), sc = P.snowCover;
+    var snow = css(lit([236, 240, 248], P)), ts = Math.max(4, Math.round(h / 6));
+    var fol = h - Math.max(2, Math.round(h * 0.12)), top = y - h;
+    rect(ctx, x - 1, top + fol - 1, 3, h - fol + 1, trunk);
+    for (var r = 0; r < fol; r++) {
+        var hw = Math.floor((r % ts) * 0.75 + r * 0.2) + (r > 0 ? 1 : 0);
+        rect(ctx, x - hw, top + r, hw + 1, 1, mid);
+        rect(ctx, x + 1, top + r, hw, 1, dark);
+        if (r % ts === ts - 1) { rect(ctx, x - hw, top + r, 2, 1, light); rect(ctx, x + hw - 1, top + r, 2, 1, dark); }
+        if (sc > 0.1 && r % ts < (sc > 0.5 ? 2 : 1)) rect(ctx, x - hw, top + r, hw + (sc > 0.5 ? Math.ceil(hw / 2) : 0) + 1, 1, snow);
+    }
+}
+
+function drawMountain(ctx, w, P, t) {
+    var W = w.W, H = w.H, yW = w.yW, yP = w.yP, hour = P.hour, i, x, y;
+    ctx.clearRect(0, 0, W, H);
+    drawRanges(ctx, w, P);
+
+    // Lago con el reflejo de las montañas.
+    var lake = mix(P.water, [40, 92, 96], 0.25 * P.amb), lakeD = mix(P.waterDeep, [30, 70, 80], 0.2 * P.amb);
+    for (y = yW; y < yP; y += 2) rect(ctx, 0, y, W, 2, css(mix(lake, lakeD, (y - yW) / (yP - yW))));
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, yW, W, yP - yW);
+    ctx.clip();
+    ctx.globalAlpha = 0.4;
+    ctx.translate(0, 2 * w.axis + 1);
+    ctx.scale(1, -1);
+    drawRanges(ctx, w, P);
+    ctx.restore();
+    ctx.globalAlpha = 0.45 + 0.15 * P.night;
+    for (y = yW; y < yP; y += 2) rect(ctx, 0, y, W, 2, css(mix(lake, lakeD, (y - yW) / (yP - yW))));
+    ctx.globalAlpha = 0.35;
+    var wl = css(mix(lake, [255, 255, 255], 0.25)), wd = css(mul(lakeD, 0.8));
+    for (i = 0; i < w.waterLines.length; i++) {
+        var l = w.waterLines[i];
+        rect(ctx, l.x, l.y, l.len, 1, l.light ? wl : wd);
+    }
+    ctx.globalAlpha = 1;
+    rect(ctx, 0, yW, W, 1, css(mul(rangeCol([44, 76, 62], P, 2), 0.7)));
+    if (P.fog > 0.02) {
+        ctx.fillStyle = css(P.fogc);
+        for (y = yW - 10; y < yP; y += 2) {
+            ctx.globalAlpha = 0.5 * P.fog * clamp(1 - (y - yW) / (yP - yW + 10), 0.1, 1);
+            ctx.fillRect(0, y, W, 2);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // Muelle de madera con una lancha de remos amarrada.
+    var D = w.dock, wood = lit([132, 98, 70], P), woodC = css(wood), woodD = css(mul(wood, 0.7));
+    var dx0 = D.dir > 0 ? D.x : D.x - D.len;
+    rect(ctx, dx0, D.y, D.len, 2, woodC);
+    rect(ctx, dx0, D.y + 2, D.len, 1, woodD);
+    for (x = 0; x < D.len; x += 3) rect(ctx, dx0 + x, D.y, 1, 1, woodD);
+    for (x = 2; x < D.len; x += 9) rect(ctx, dx0 + x, D.y + 3, 1, 3, woodD);
+    var bxx = D.dir > 0 ? dx0 + D.len - 12 : dx0 + 2, by = D.y - 6;
+    var hull = lit([60, 110, 150], P);
+    rect(ctx, bxx, by + 2, 10, 2, css(hull));
+    rect(ctx, bxx + 1, by + 4, 8, 1, css(mul(hull, 0.7)));
+    rect(ctx, bxx, by + 2, 10, 1, css(mix(hull, [255, 255, 255], 0.3)));
+    rect(ctx, bxx + 3, by + 1, 1, 1, woodD); rect(ctx, bxx + 6, by + 1, 1, 1, woodD);
+
+    // Pradera de enfrente (blanca si nevó), con sendero de tierra.
+    var sc = P.snowCover, snowC = lit([236, 240, 248], P);
+    var grass = mix(lit([98, 142, 74], P), snowC, clamp(sc * 1.1, 0, 0.92));
+    rect(ctx, 0, yP, W, H - yP, css(grass));
+    rect(ctx, 0, yP, W, 2, css(mix(lit([150, 140, 118], P), snowC, sc * 0.8)));
+    rect(ctx, 0, yP + 2, W, 1, css(mul(grass, 0.85)));
+    var gl = css(mix(grass, [255, 255, 230], 0.18)), gd = css(mul(grass, 0.85));
+    for (i = 0; i < w.grass.length; i++) rect(ctx, w.grass[i].x, w.grass[i].y, 1, 1, w.grass[i].light ? gl : gd);
+    var dirt = mix(lit([170, 140, 100], P), snowC, sc * 0.6), dirtC = css(dirt), dirtD = css(mul(dirt, 0.88));
+    for (x = 0; x < W; x++) {
+        var e0 = Math.round(Math.sin(x * 0.05) * 1.2 + hash2(x >> 1, 31)), e1 = Math.round(Math.sin(x * 0.04 + 2) * 1.2 + hash2(x >> 1, 37));
+        rect(ctx, x, w.trailY - e0, 1, 9 + e0 + e1, dirtC);
+        if (hash2(x, 41) < 0.2) rect(ctx, x, w.trailY + 2 + Math.floor(hash2(x, 43) * 5), 1, 1, dirtD);
+    }
+    var m = new Date().getMonth();
+    if (m >= 3 && m <= 8 && sc < 0.3)
+        for (i = 0; i < w.flowers.length; i++) rect(ctx, w.flowers[i].x, w.flowers[i].y, 1, 1, css(lit(w.flowers[i].col, P)));
+    for (i = 0; i < w.rocks.length; i++) {
+        var rk = w.rocks[i], rc = lit([132, 130, 136], P);
+        ell(ctx, rk.x, rk.y, rk.r, rk.r * 0.6, css(mul(rc, 0.75)));
+        ell(ctx, rk.x - 1, rk.y - 1, rk.r - 1, Math.max(1, rk.r * 0.6 - 1), css(rc));
+        if (sc > 0.2) rect(ctx, rk.x - rk.r + 2, rk.y - Math.round(rk.r * 0.6), rk.r * 2 - 3, 1, css(snowC));
+    }
+
+    // Pinos de la orilla, la cabaña y la fogata, por profundidad.
+    var items = w.pines.map(function (p) { return { y: p.y, p: p }; });
+    items.push({ y: w.cabin.y, c: 1 });
+    items.sort(function (a, b) { return a.y - b.y; });
+    for (i = 0; i < items.length; i++) {
+        if (items[i].c) drawCabin(ctx, w, P, hour);
+        else drawPine(ctx, items[i].p.x, items[i].p.y, items[i].p.h, P, 0.08);
+    }
+    var F = w.fire, stone = css(lit([126, 122, 128], P)), log = css(lit([96, 66, 46], P)), logD = css(lit([70, 48, 36], P));
+    for (var k = -5; k <= 5; k += 2) rect(ctx, F.x + k, F.y + (Math.abs(k) > 3 ? -1 : 0), 1, 1, stone);
+    rect(ctx, F.x - 3, F.y - 1, 7, 1, log);
+    rect(ctx, F.x - 2, F.y - 2, 2, 1, logD); rect(ctx, F.x + 1, F.y - 2, 2, 1, logD);
+    // Troncos para sentarse.
+    rect(ctx, F.x - 16, F.y - 2, 8, 3, log); rect(ctx, F.x - 16, F.y - 2, 1, 3, logD);
+    rect(ctx, F.x + 9, F.y - 1, 8, 3, log); rect(ctx, F.x + 16, F.y - 1, 1, 3, logD);
+    if (sc > 0.2) { rect(ctx, F.x - 16, F.y - 3, 8, 1, css(snowC)); rect(ctx, F.x + 9, F.y - 2, 8, 1, css(snowC)); }
+}
+
+// ¿Hay alguien en la cabaña? Luces encendidas al anochecer y temprano en la mañana.
+function cabinLit(hour) { return (hour >= 17.5 && hour < 23.5) || (hour >= 5.3 && hour < 7.2); }
+
+function drawCabin(ctx, w, P, hour) {
+    var C = w.cabin, x = C.x, y = C.y, cw = 36, half = 18, wallH = 14, roofH = 15, i, r;
+    var log = lit([150, 104, 66], P), logC = css(log), logD = css(mul(log, 0.72)), logL = css(mix(log, [255, 230, 190], 0.15));
+    var roof = lit(C.roof, P), roofC = css(roof), roofD = css(mul(roof, 0.7));
+    var sc = P.snowCover, snow = css(lit([238, 242, 250], P));
+    var on = cabinLit(hour) && P.night > 0.25;
+    var glass = on ? "#ffd27a" : css(mix(lit([120, 150, 170], P), P.hor, 0.35));
+    var wy = y - wallH;
+    // Base de piedra y paredes de troncos (las puntas sobresalen en las esquinas).
+    rect(ctx, x - half, y - 2, cw, 2, css(lit([120, 116, 120], P)));
+    for (r = 0; r < wallH - 2; r += 2) {
+        rect(ctx, x - half, wy + r, cw, 2, logC);
+        rect(ctx, x - half, wy + r + 1, cw, 1, logD);
+        rect(ctx, x - half - 1 - (r % 4 ? 0 : 1), wy + r, 2, 2, logL);
+        rect(ctx, x + half - 1 + (r % 4 ? 0 : 1), wy + r, 2, 2, logL);
+    }
+    // Hastial (triángulo) con troncos, alero del techo y ventanita.
+    for (r = 0; r < roofH; r++) {
+        var hw = Math.round((r + 1) * (half + 3) / roofH), ry = wy - roofH + r;
+        rect(ctx, x - hw, ry, hw * 2 + 1, 1, r % 2 ? logD : logC);
+        rect(ctx, x - hw, ry, 3, 1, roofC);
+        rect(ctx, x + hw - 2, ry, 3, 1, roofC);
+        rect(ctx, x - hw, ry + 1, 1, 1, roofD);
+        rect(ctx, x + hw, ry + 1, 1, 1, roofD);
+        if (sc > 0.1) { rect(ctx, x - hw, ry - 1, 2, 1, snow); rect(ctx, x + hw - 1, ry - 1, 2, 1, snow); }
+    }
+    rect(ctx, x - half - 3, wy, cw + 6, 1, roofD);
+    rect(ctx, x - 2, wy - 8, 5, 4, css(lit([90, 64, 44], P)));
+    rect(ctx, x - 1, wy - 7, 3, 2, glass);
+    // Chimenea de piedra.
+    var ch = w.chimney, stone = lit([128, 120, 118], P);
+    rect(ctx, ch.x - 2, ch.y, 5, wy - ch.y - 4, css(stone));
+    rect(ctx, ch.x - 3, ch.y, 7, 2, css(mul(stone, 0.8)));
+    for (i = ch.y + 3; i < wy - 4; i += 3) rect(ctx, ch.x - 2 + (i % 2) * 2, i, 2, 1, css(mul(stone, 0.85)));
+    if (sc > 0.2) rect(ctx, ch.x - 3, ch.y - 1, 7, 1, snow);
+    // Puerta y ventanas.
+    var door = lit([96, 64, 42], P);
+    rect(ctx, x - 3, y - 11, 7, 9, css(door));
+    rect(ctx, x - 3, y - 11, 7, 1, css(mul(door, 0.7)));
+    rect(ctx, x + 2, y - 7, 1, 1, css(lit([210, 180, 90], P)));
+    for (i = -1; i <= 1; i += 2) {
+        var wx = x + i * 11 - 3;
+        rect(ctx, wx - 1, y - 11, 8, 7, css(lit([226, 214, 190], P)));
+        rect(ctx, wx, y - 10, 6, 5, glass);
+        rect(ctx, wx + 3, y - 10, 1, 5, css(lit([226, 214, 190], P)));
+        rect(ctx, wx, y - 8, 6, 1, css(lit([226, 214, 190], P)));
+        if (!on) rect(ctx, wx, y - 10, 2, 1, css(mix(lit([200, 220, 235], P), P.hor, 0.2)));
+        rect(ctx, wx - 1, y - 4, 8, 1, css(lit([120, 150, 80], P)));       // jardinera
+        if (sc > 0.2) rect(ctx, wx - 1, y - 5, 8, 1, snow);
+    }
+    // Leña apilada junto a la cabaña.
+    var lx = x - C.side * (half + 7), wd = css(lit([120, 84, 56], P)), wdl = css(lit([196, 160, 110], P));
+    for (r = 0; r < 3; r++)
+        for (i = 0; i < 4 - r; i++) {
+            rect(ctx, lx - 6 + i * 3 + r, y - 3 - r * 3, 3, 3, wd);
+            rect(ctx, lx - 5 + i * 3 + r, y - 2 - r * 3, 1, 1, wdl);
+        }
+    if (sc > 0.2) rect(ctx, lx - 4, y - 10, 7, 1, snow);
+    // Luz de las ventanas sobre el piso y farol junto a la puerta.
+    if (on) {
+        ctx.globalAlpha = 0.14 * P.night;
+        ell(ctx, x - 11, y + 4, 9, 2, "#ffd27a");
+        ell(ctx, x + 11, y + 4, 9, 2, "#ffd27a");
+        ell(ctx, x, y + 3, 6, 2, "#ffd27a");
+        ctx.globalAlpha = 0.25;
+        disc(ctx, x + 6, y - 9, 4, "#ffd890");
+        ctx.globalAlpha = 1;
+        rect(ctx, x + 6, y - 10, 1, 2, "#fff0c0");
+    }
+}
+
+// Pinos grandes y matorrales delante de todo.
+function drawMountainFront(ctx, w, P) {
+    var i;
+    for (i = 0; i < w.bigPines.length; i++) drawPine(ctx, w.bigPines[i].x, w.bigPines[i].y, w.bigPines[i].h, P, 0);
+    var b = lit([50, 84, 58], P), sc = P.snowCover;
+    var dark = css(mul(b, 0.7)), mid = css(mix(b, lit([236, 240, 248], P), clamp(sc - 0.2, 0, 0.8)));
+    for (i = 0; i < w.bushes.length; i++) disc(ctx, w.bushes[i].x, w.H + 2, w.bushes[i].r, dark);
+    for (i = 0; i < w.bushes.length; i++) disc(ctx, w.bushes[i].x - 1, w.H + 3, w.bushes[i].r - 2, mid);
+}
+
+// Capa ambiental de la montaña (4 fps): humo de la chimenea, peces, luciérnagas y fogata.
+function drawMountainAmbient(ctx, w, P, t) {
+    var W = w.W, hour = P.hour, i, k;
+    // Humo: bocanadas que suben y se doblan con el viento.
+    var ch = w.chimney, smoke = lit([214, 214, 220], P), wind = w.cabin.side;
+    for (k = 0; k < 8; k++) {
+        var age = (t * 0.12 + k / 8) % 1;
+        ctx.globalAlpha = 0.4 * (1 - age) * (cabinLit(hour) || P.snowCover > 0.2 || w.month >= 10 || w.month <= 2 ? 1 : 0.45);
+        disc(ctx, ch.x + wind * age * age * 26 + Math.sin(t * 0.8 + k) * age * 2, ch.y - 2 - age * 34, 1 + age * 3.5, css(smoke));
+    }
+    ctx.globalAlpha = 1;
+
+    // Peces que saltan: arco y círculos en el agua.
+    if (P.amb > 0.4 && P.rain < 0.3) {
+        var cyc = Math.floor(t / 7), ph = t % 7;
+        if (ph < 2.2 && hash2(cyc, 51) < 0.7) {
+            var fx = Math.round(W * (0.1 + hash2(cyc, 52) * 0.8)), fy = Math.round(w.yW + 6 + hash2(cyc, 53) * (w.yP - w.yW - 12));
+            var ring = css(mix(P.water, [255, 255, 255], 0.5));
+            if (ph < 0.6) {
+                var a = ph / 0.6, hx = fx + Math.round((a - 0.5) * 8), hy = fy - Math.round(Math.sin(a * Math.PI) * 6);
+                rect(ctx, hx - 1, hy, 3, 1, css(lit([150, 160, 170], P)));
+            }
+            for (k = 0; k < 2; k++) {
+                var rr = (ph - k * 0.4) * 5;
+                if (rr <= 0) continue;
+                ctx.globalAlpha = clamp(0.6 - rr / 14, 0, 1);
+                rect(ctx, fx - Math.round(rr), fy, 2, 1, ring);
+                rect(ctx, fx + Math.round(rr) - 1, fy, 2, 1, ring);
+                rect(ctx, fx - Math.round(rr * 0.5), fy - 1, Math.round(rr) + 1, 1, ring);
+                rect(ctx, fx - Math.round(rr * 0.5), fy + 1, Math.round(rr) + 1, 1, ring);
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // Luciérnagas en las noches de verano.
+    if (P.night > 0.6 && P.rain < 0.1 && w.month >= 5 && w.month <= 8) {
+        for (i = 0; i < 22; i++) {
+            if (hash2(i, Math.floor(t * 1.5 + i)) < 0.45) continue;
+            var lx = (hash2(i, 61) * W + Math.sin(t * 0.3 + i) * 12 + W) % W;
+            var ly = w.yP + 4 + hash2(i, 62) * (w.H - w.yP - 10) + Math.sin(t * 0.5 + i * 2) * 4;
+            ctx.globalAlpha = 0.3;
+            rect(ctx, lx - 1, ly - 1, 3, 3, "#d8ff70");
+            ctx.globalAlpha = 1;
+            rect(ctx, lx, ly, 1, 1, "#f0ffa0");
+        }
+    }
+
+    // Fogata del anochecer, si no llueve.
+    if (P.night > 0.4 && P.rain < 0.2 && (hour >= 18.5 && hour < 23.5)) drawFlames(ctx, w.fire.x, w.fire.y - 2, t);
+}
+
+// Venados al amanecer y al atardecer, el águila de día y alguna canoa en el lago.
+function stepMountain(w, dt, hour, P) {
+    var R = Math.random, T = w.timers, W = w.W, i, j;
+    var dusk = (hour >= 5.3 && hour < 8.5) || (hour >= 17.3 && hour < 20.5);
+    T.deer -= dt;
+    if (T.deer <= 0) {
+        T.deer = 40 + R() * 60;
+        if (dusk && P.rain < 0.5 && w.critters.length === 0) {
+            var dir = R() < 0.5 ? 1 : -1, n = 1 + Math.floor(R() * 3), y0 = w.yP + 22 + R() * (w.H - w.yP - 30);
+            for (j = 0; j < n; j++)
+                w.critters.push({ kind: "deer", x: dir > 0 ? -12 - j * 14 : W + 12 + j * 14, y: Math.round(y0 + j * 4 - R() * 3),
+                    dir: dir, state: "walk", tx: W * (0.2 + R() * 0.6) - dir * j * 14, tm: 60 + R() * 60, dist: 0, buck: j === 0 && R() < 0.6, look: 0 });
+        }
+    }
+    for (i = w.critters.length - 1; i >= 0; i--) {
+        var c = w.critters[i];
+        c.tm -= dt;
+        if (c.state !== "run") {
+            for (j = 0; j < w.people.length; j++) {
+                var q = w.people[j];
+                if (Math.abs(q.x - c.x) < 26 && Math.abs(q.y - c.y) < 14) { c.state = "run"; c.dir = q.x < c.x ? 1 : -1; break; }
+            }
+        }
+        if (c.state === "walk") {
+            c.x += c.dir * 5 * dt; c.dist += 5 * dt;
+            if (c.tm > 0 && (c.dir > 0 ? c.x >= c.tx : c.x <= c.tx)) { c.state = "graze"; c.look = 2 + R() * 4; }
+        } else if (c.state === "graze") {
+            c.look -= dt;
+            if (c.look <= 0) {
+                if (c.tm <= 0 || !dusk) { c.state = "walk"; c.tx = c.dir > 0 ? W + 40 : -40; }
+                else { c.state = R() < 0.3 ? "walk" : "graze"; c.up = R() < 0.4; c.look = 1.5 + R() * 4; c.tx = c.x + c.dir * (6 + R() * 10); }
+            }
+        } else if (c.state === "run") {
+            c.x += c.dir * 34 * dt; c.dist += 34 * dt;
+        }
+        if (c.x < -50 || c.x > W + 50) w.critters.splice(i, 1);
+    }
+
+    // Águila: planea en círculos amplios que se van corriendo.
+    if (w.eagle) {
+        var e = w.eagle;
+        e.ph += dt * 0.35; e.cx += e.drift * dt; e.life -= dt;
+        e.x = e.cx + Math.cos(e.ph) * e.r; e.y = e.cy + Math.sin(e.ph) * e.r * 0.3;
+        if (e.life <= 0) e.cx += e.drift * dt * 8;
+        if (e.cx < -60 || e.cx > W + 60) w.eagle = null;
+    } else {
+        T.eagle -= dt;
+        if (T.eagle <= 0) {
+            T.eagle = 60 + R() * 120;
+            if (P.amb > 0.6 && P.rain < 0.3) {
+                var ed = R() < 0.5 ? 1 : -1;
+                w.eagle = { cx: ed > 0 ? -40 : W + 40, cy: 20 + R() * w.yW * 0.3, r: 18 + R() * 14, ph: R() * 6, drift: ed * (3 + R() * 2), life: 60 + R() * 60 };
+                w.eagle.x = w.eagle.cx; w.eagle.y = w.eagle.cy;
+            }
+        }
+    }
+
+    // Canoas de día.
+    T.canoe -= dt;
+    if (T.canoe <= 0) {
+        T.canoe = 30 + R() * 60;
+        if (hour >= 7 && hour < 19 && P.rain < 0.3 && w.boats.length < 1) {
+            // Entra por el lado contrario a la cabaña y da la vuelta antes de llegar al muelle.
+            var cd = w.cabin.side;
+            w.boats.push({ kind: "canoe", x: cd > 0 ? -20 : W + 20, turn: w.cabin.x - cd * (70 + R() * 80), y: Math.round(w.yW + 1 + R() * 4), dir: cd, speed: 4 + R() * 3,
+                skin: rgb(pick(R, SKINS)), top: rgb(pick(R, TOPS)), hull: rgb(pick(R, ["#d0603a", "#3a7ad0", "#e0b040", "#40905a"])), two: R() < 0.5 });
+        }
+    }
+    for (i = 0; i < w.boats.length; i++) {
+        var bo = w.boats[i];
+        if (bo.turn !== null && (bo.dir > 0 ? bo.x >= bo.turn : bo.x <= bo.turn)) { bo.dir = -bo.dir; bo.turn = null; }
+    }
+}
+
+// Águila que planea (de espaldas), en la capa de vida.
+function drawMountainLife(ctx, w, P, t) {
+    var e = w.eagle;
+    if (!e) return;
+    var x = Math.round(e.x), y = Math.round(e.y), b = css(lit([74, 54, 42], P)), h = css(lit([238, 236, 228], P));
+    var tip = Math.sin(e.ph * 3) > 0 ? -1 : 0;
+    rect(ctx, x - 5, y + tip, 1, 1, b); rect(ctx, x + 5, y + tip, 1, 1, b);
+    rect(ctx, x - 4, y, 3, 1, b); rect(ctx, x + 2, y, 3, 1, b);
+    rect(ctx, x - 1, y, 3, 2, b);
+    rect(ctx, x, y - 1, 1, 1, h);
+    rect(ctx, x, y + 2, 1, 1, h);
+}
+
+// Canoa con uno o dos remeros.
+function drawCanoe(ctx, b, P, t) {
+    var x = Math.round(b.x), y = b.y, d = b.dir, hull = lit(b.hull, P);
+    var skin = css(lit(b.skin, P)), top = css(lit(b.top, P)), pad = css(lit([110, 80, 56], P));
+    ctx.globalAlpha = 0.4;
+    for (var k = 0; k < 4; k++) rect(ctx, x - d * (10 + k * 4) - (d > 0 ? 3 : 0), y + 5 + (k % 2), 3, 1, "#e8f0ff");
+    ctx.globalAlpha = 1;
+    rect(ctx, x - 7, y + 3, 15, 2, css(hull));
+    rect(ctx, x - 8, y + 2, 1, 2, css(hull)); rect(ctx, x + 8, y + 2, 1, 2, css(hull));
+    rect(ctx, x - 6, y + 5, 13, 1, css(mul(hull, 0.65)));
+    rect(ctx, x - 7, y + 3, 15, 1, css(mix(hull, [255, 255, 255], 0.3)));
+    var seats = b.two ? [-3, 3] : [0];
+    for (var i = 0; i < seats.length; i++) {
+        var sx = x + seats[i], f = Math.floor(t * 1.5 + i) % 2;
+        rect(ctx, sx, y - 2, 2, 2, skin);
+        rect(ctx, sx, y, 2, 3, top);
+        // Remo: alterna de lado.
+        rect(ctx, sx + (f ? 2 : -1), y + 1, 1, 3, pad);
+        rect(ctx, sx + (f ? 3 : -2), y + 4, 1, 2, pad);
+    }
+}
+
+// Venado de 12×11 (mira a la derecha): parado, pastando y corriendo; a cornamenta, solo el macho.
+var DEER = {
+    stand: ["........a.a.", ".........a..", "........ehhh", "........hhkn", "t......hh...", "bbbbbbbbb...", ".bbbbbbbb...",
+        ".bwwwwwb....", ".l.l..l.l...", ".l.l..l.l...", ".d.d..d.d..."],
+    graze: ["............", "............", "............", "............", "t...........", "bbbbbbbbb...", ".bbbbbbbbh.a",
+        ".bwwwwwb.hha", ".l.l..l.l.hh", ".l.l..l.l.hn", ".d.d..d.d..."],
+    run1: ["........a.a.", ".........a..", "........ehhh", "........hhkn", "t......hh...", "bbbbbbbbb...", ".bbbbbbbb...",
+        "lbwwwwwbbl..", "l........l..", "d.........d.", "............"],
+    run2: ["............", "........a.a.", ".........a..", "........ehhh", "t.......hhkn", "bbbbbbbbhh..", ".bbbbbbbb...",
+        ".bwwwwwb....", "..ll..ll....", "..d....d....", "............"]
+};
+var DEER_PAL = { b: [150, 100, 64], h: [140, 94, 60], e: [118, 78, 50], k: [30, 20, 20], n: [40, 30, 30], t: [238, 230, 216],
+    w: [214, 190, 160], l: [122, 84, 56], d: [50, 40, 36], a: [206, 186, 150] };
+function drawDeer(ctx, c, P, t) {
+    var f = c.state === "run" ? (Math.floor(c.dist / 5) % 2 ? DEER.run1 : DEER.run2)
+        : (c.state === "graze" && !c.up ? DEER.graze : DEER.stand);
+    var walk = c.state === "walk" && Math.floor(c.dist / 3) % 2;
+    var x = Math.round(c.x) - 6, y = Math.round(c.y) - 10, flip = c.dir < 0;
+    for (var r = 0; r < f.length; r++) {
+        var row = f[r];
+        if (walk && r >= 8) row = r === 10 ? "d.d...d.d..." : "l.l...l.l...";
+        for (var k = 0; k < row.length; k++) {
+            var ch = row[flip ? row.length - 1 - k : k];
+            if (ch === "." || (ch === "a" && !c.buck)) continue;
+            rect(ctx, x + k, y + r, 1, 1, css(lit(DEER_PAL[ch], P)));
+        }
+    }
+}
+
+// ---------- tabla de escenas ----------
+// Cada escena distinta de la ciudad: create arma el mundo, draw pinta la capa fija (cada ~30 s),
+// front el primer plano, y opcionalmente ambient (4 fps), step (simulación), life (dibujo extra
+// en la capa de vida, detrás de la gente) y tint (ajuste de la paleta).
+var SCENES = {
+    beach: { create: createBeach, draw: drawBeach, front: drawPalms, ambient: drawBeachAmbient, step: stepBeach,
+        life: function (ctx, w, P, t) { for (var i = 0; i < w.swimmers.length; i++) drawSwimmer(ctx, w.swimmers[i], P, t); } },
+    mountain: { create: createMountain, draw: drawMountain, front: drawMountainFront, ambient: drawMountainAmbient,
+        step: stepMountain, life: drawMountainLife }
+};
+
+// Animales que caminan entre la gente (w.critters): se ordenan por profundidad con ella.
+var CRITTERS = { crab: drawCrab, deer: drawDeer };
