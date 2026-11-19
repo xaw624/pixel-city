@@ -2166,7 +2166,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon", "heli", "holo", "swarm"];
+var FLYER_ORDER = ["blimp", "banner", "duster", "skywrite", "balloon", "heli", "holo", "swarm"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2175,11 +2175,20 @@ var FLYERS = {
         draw: drawBlimp
     },
     banner: {
-        ok: function (w, h) { return h > 7.5 && h < 18; },
+        ok: function (w, h) { return h > 7.5 && h < 18 && w.scene !== "farm"; },
         make: function (w, d, R) {
             return { x: d > 0 ? -8 : w.W + 8, y: 8 + R() * 22, dir: d, speed: 9 + R() * 3, m: 6 + BANNER_ROPE + BANNER_W + 2 };
         },
         draw: drawBannerPlane
+    },
+    duster: {
+        ok: function (w, h) { return w.scene === "farm" && h > 7.5 && h < 18 && w.rain < 0.05; },
+        make: function (w, d, R) {
+            return { x: d > 0 ? -8 : w.W + 8, y: w.yW - 8 + R() * 8, dir: d, speed: 10 + R() * 2, spray: [], st: 0,
+                     m: 6 + BANNER_ROPE + BANNER_W + 2 };
+        },
+        step: stepDuster,
+        draw: drawDuster
     },
     skywrite: {
         ok: function (w, h) { return h > 8 && h < 17.5 && w.rain < 0.05 && w.fog < 0.2; },
@@ -2263,6 +2272,44 @@ function drawBannerPlane(ctx, b, P, t, w) {
         rect(ctx, d > 0 ? x + 8 : x + 3, y + 1, 1, 1, Math.floor(t * 1.5) % 2 === 0 ? "#ff6060" : "#60ff80");
         if (Math.floor(t * 1.2) % 3 === 0) rect(ctx, d > 0 ? x : x + 11, y, 1, 1, "#ffffff");
     }
+    drawTowedBanner(ctx, w, d > 0 ? x - 1 : x + 12, y + 2, d, P, t);
+}
+
+// Avioneta fumigadora del campo: biplano amarillo de 12×6 que vuela bajo, rocía las parcelas y
+// remolca el cartel con la hora. w alas, b fuselaje, t cola, g piloto, k montantes y ruedas.
+var DUSTER = ["....wwwwww..", "t.....k..k..", "tbbbbbgbbbb.", ".bbbbbbbbbbb", "....wwwwww..", "......k..k.."];
+var DUSTER_PAL = { w: [232, 184, 40], b: [246, 208, 64], t: [200, 60, 50], g: [60, 60, 72], k: [80, 66, 54] };
+function stepDuster(f, w, dt, R) {
+    f.x += f.dir * f.speed * dt;
+    f.st -= dt;
+    if (f.st <= 0 && f.x > -6 && f.x < w.W + 6) {
+        f.st = 0.12;
+        f.spray.push({ x: Math.round(f.x) - 6 + (f.dir > 0 ? 3 : 2) + Math.floor(R() * 7), y: f.y + 6, age: 0 });
+    }
+    for (var i = f.spray.length - 1; i >= 0; i--) {
+        var p = f.spray[i];
+        p.age += dt;
+        p.y += 2.5 * dt;
+        p.x += 0.4 * dt;
+        if (p.age > 3) f.spray.splice(i, 1);
+    }
+    return !f.spray.length && (f.dir > 0 ? f.x > w.W + f.m : f.x < -f.m);
+}
+function drawDuster(ctx, f, P, t, w) {
+    var d = f.dir, y = Math.round(f.y + Math.sin(t * 0.9)), x = Math.round(f.x) - 6;
+    var col = function (c) { return css(lit(c, P)); }, mist = col([228, 236, 216]);
+    for (var i = 0; i < f.spray.length; i++) {
+        var p = f.spray[i], g = p.age > 1.2 ? 2 : 1;
+        ctx.globalAlpha = 0.4 * (1 - p.age / 3);
+        rect(ctx, p.x, p.y, g + 1, g, mist);
+    }
+    ctx.globalAlpha = 1;
+    sprite(ctx, DUSTER, x, y, d < 0, DUSTER_PAL, col);
+    var px = d > 0 ? x + 12 : x - 1, fr = Math.floor(t * 12) % 2;
+    ctx.globalAlpha = 0.7;
+    rect(ctx, px, y + 2, 1, 2, col([120, 120, 132]));
+    rect(ctx, px, fr ? y + 1 : y + 4, 1, 1, col([90, 90, 100]));
+    ctx.globalAlpha = 1;
     drawTowedBanner(ctx, w, d > 0 ? x - 1 : x + 12, y + 2, d, P, t);
 }
 
