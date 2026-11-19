@@ -18,6 +18,10 @@ completamente por código (sin videos ni imágenes).
 - **Vida**: gente paseando (con perros, familias, corredores), palomas que se espantan cuando alguien
   pasa, bandadas, gaviotas, autos, taxis y autobuses, ferris, veleros y lanchas.
 - **Dirigible con reloj** que muestra la hora actual.
+- **Dos escenarios** (en **Configurar escritorio y fondo** → Escenario):
+  - **Ciudad junto al agua**.
+  - **Playa**: mar abierto donde se pone el sol, cabo con faro que gira de noche, sombrillas que se
+    cierran al anochecer, bañistas, cangrejos, castillo de arena, palmeras y una fogata de noche.
 - **Clima y escenarios** que aparecen solos:
   - **Amanecer** con rayos de sol que salen de detrás de los edificios y más corredores en el paseo.
   - **Neblina matinal** algunas madrugadas, más espesa sobre el agua y los edificios lejanos; se
@@ -87,7 +91,7 @@ Medido en una laptop con i5-8300H a 1920×1080 (proceso `plasmashell` completo, 
   navegador.
 - `package/contents/ui/main.qml`: el fondo de Plasma. Apila las capas (cielo, nubes, ciudad,
   ambiente a 4 fps, vida a 12 fps, primer plano) y las escala a pantalla completa.
-- `preview.html`: vista previa en el navegador. Parámetros: `?hour=18.5`, `&rain=0.8`, `&live=1`
+- `preview.html`: vista previa en el navegador. Parámetros: `?scene=beach`, `&hour=18.5`, `&rain=0.8`, `&live=1`
   (animada), `&seed=7`, `&weather=` para fijar un escenario (`clear`, `rain`, `storm`, `snow`,
   `fog`, `rainbow`, `fireworks`).
 - `catalog.html`: hoja con todos los estilos de edificio, de día y de noche.

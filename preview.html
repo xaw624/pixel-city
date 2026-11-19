@@ -13,10 +13,11 @@
 <script src="package/contents/ui/scene.js"></script>
 <script>
 // Arnés de pruebas: compone las mismas capas que main.qml en un solo lienzo.
-// Parámetros: ?hour=18.5&rain=0.8&weather=fog&sim=60&seed=7&px=4&live=1 (px: pixeles de pantalla por pixel de arte)
+// Parámetros: ?scene=beach&hour=18.5&rain=0.8&weather=fog&sim=60&seed=7&px=4&live=1
+// (scene: city o beach; px: pixeles de pantalla por pixel de arte)
 var q = new URLSearchParams(location.search);
 var PX = +(q.get("px") || 4), W = Math.ceil(innerWidth / PX), H = Math.ceil(innerHeight / PX);
-var world = create(W, H, +(q.get("seed") || 20251115));
+var world = create(W, H, +(q.get("seed") || 20251115), { scene: q.get("scene") || "city" });
 var fixedHour = q.has("hour") ? +q.get("hour") : null;
 function hourNow() { var d = new Date(); return fixedHour !== null ? fixedHour : d.getHours() + d.getMinutes() / 60; }
 if (q.has("rain")) { world.rain = world.rainTarget = +q.get("rain"); world.timers.weather = 1e9; }

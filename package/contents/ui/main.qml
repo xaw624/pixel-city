@@ -13,6 +13,8 @@ WallpaperItem {
     readonly property int lh: Math.max(180, Math.min(720, configuration.Lines || 270))
     readonly property int lw: height > 0 ? Math.ceil(width / height * lh) : 0
     readonly property int fps: 12
+    // Paisaje elegido en los ajustes: "city" o "beach".
+    readonly property string sceneName: configuration.Scene || "city"
 
     // Pausa la animación cuando una ventana maximizada o a pantalla completa tapa el escritorio.
     property bool covered: false
@@ -32,7 +34,7 @@ WallpaperItem {
     function rebuild() {
         if (lw < 32 || lh < 32)
             return
-        world = Scene.create(lw, lh, 20251115)
+        world = Scene.create(lw, lh, 20251115, { scene: root.sceneName })
         pal = Scene.palette(world, hourNow())
         Scene.warmup(world, pal.hour, pal)
         lastStep = now()
@@ -98,6 +100,7 @@ WallpaperItem {
 
     onLwChanged: rebuildTimer.restart()
     onLhChanged: rebuildTimer.restart()
+    onSceneNameChanged: rebuildTimer.restart()
     Component.onCompleted: rebuildTimer.restart()
 
     Timer {
@@ -172,7 +175,7 @@ WallpaperItem {
         }
     }
 
-    // Luces, pantallas, gato, dirigible y brillo del agua: cuatro veces por segundo basta.
+    // Luces, pantallas, anuncios, dirigible, olas y brillo del agua: cuatro veces por segundo basta.
     Timer {
         interval: 250
         repeat: true

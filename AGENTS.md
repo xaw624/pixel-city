@@ -47,7 +47,10 @@ la configuración del fondo anterior se conserva.
 - `package/contents/ui/main.qml`: `WallpaperItem`. Apila lienzos (cielo, nubes, ciudad, ambiente,
   vida, primer plano), los escala sin suavizado y maneja temporizadores y la pausa.
 - `package/contents/ui/scene.js`: todo el motor (generación, paleta por hora, simulación, dibujo).
-  Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador.
+  Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador. Tiene dos escenas
+  (`city` y `beach`, ajuste "Escenario" = `configuration.Scene`): comparten cielo, clima y vida, y
+  cada una pone su paisaje en `drawCity`/`drawFront` (la playa en `drawBeach`/`drawPalms`).
+  Sigue en un solo archivo porque los JS de QML no comparten globales entre archivos.
 - `preview.html`, `catalog.html`, `anuncios.html`: arneses para probar en el navegador.
 
 ## Probar cambios sin tocar el escritorio
@@ -60,7 +63,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 ```
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
-(segundos simulados), `seed`, `live=1`, `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
+(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
 `rainbow`, `fireworks`; llama a `setWeather` y congela el clima).
 
 ## Trampas conocidas
@@ -85,6 +88,10 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   `adState`. La cara va en `drawAdFace` (ambiente) y el marco en `drawBillboard` (ciudad). No cambies
   las llamadas a `R()` al generar carteles: cambiarían la ciudad de la semilla fija.
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
+- Al tocar lo común, verifica que la ciudad no cambie: renderiza `drawSky`/`drawCity`/`drawFront`
+  con hora y `t` fijos antes y después, y compara con `magick compare -metric AE` (debe dar 0).
+- Playa: sin nieve (`w.noSnow`), el sol recorre `w.span` para no esconderse tras el cabo y los
+  carriles de gente están en `w.lanes` (orilla y delante de las sombrillas, que son fijas).
 
 ## Estilo
 

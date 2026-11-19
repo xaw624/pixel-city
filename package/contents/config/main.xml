@@ -13,6 +13,11 @@
       <min>180</min>
       <max>720</max>
     </entry>
+    <!-- Paisaje: "city" (ciudad junto al agua) o "beach" (playa). -->
+    <entry name="Scene" type="String">
+      <label>Escenario</label>
+      <default>city</default>
+    </entry>
   </group>
 
 </kcfg>

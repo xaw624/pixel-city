@@ -1,6 +1,11 @@
 // Pixel City: motor de la escena. Lo usan el fondo de Plasma (main.qml) y el arnés de pruebas (preview.html).
 // Todo se dibuja con fillRect en coordenadas enteras sobre un lienzo de baja resolución que luego se
 // escala sin suavizado, así cada "pixel" del arte ocupa varios pixeles reales de la pantalla.
+//
+// Escenas: create(W, H, seed, { scene }) arma la ciudad ("city", por omisión) o la playa ("beach").
+// Lo común (paleta, cielo, nubes, clima, gente, barcos, aves, dirigible) se comparte; cada escena
+// pone su paisaje en drawCity/drawFront y sus extras con w.scene. Todo vive en este archivo porque
+// los JS importados en QML no comparten variables globales y el navegador no entiende `.import`.
 
 // ---------- utilidades ----------
 
@@ -167,8 +172,9 @@ var DEPTH = [
 
 // opts.style fuerza un estilo para los edificios cercanos (lo usa la hoja de propuestas).
 function create(W, H, seed, opts) {
-    var R = rng(seed || 7);
-    var w = { W: W, H: H, opts: opts || {} };
+    if (opts && opts.scene === "beach") return createBeach(W, H, seed, opts);
+    var R = rng(seed || 7), i, j;
+    var w = { W: W, H: H, opts: opts || {}, scene: "city" };
     w.yW = Math.round(H * 0.60);       // línea del agua
     w.yP = Math.round(H * 0.80);       // barandal del paseo
     w.base = w.yW - 5;                 // pie de los edificios; abajo queda la calle de enfrente
@@ -191,27 +197,7 @@ function create(W, H, seed, opts) {
     // Las luces de antena que tapa un edificio más cercano no se dibujan.
     w.antennas = w.antennas.filter(function (a) { return !occluded(w, a.x, a.y, a.depth); });
 
-    w.stars = [];
-    for (var i = 0; i < Math.round(W * H / 900); i++)
-        w.stars.push({ x: ri(R, 0, W - 1), y: ri(R, 0, Math.round(w.base * 0.75)), b: 0.3 + R() * 0.7 });
-
-    // Nubes alargadas en capas: más anchas y planas cuanto más cerca del horizonte.
-    w.clouds = [];
-    var nc = Math.round(W / 50) + 3;
-    for (i = 0; i < nc + 7; i++) {
-        var storm = i >= nc;
-        var cy = storm ? ri(R, 4, 50) : ri(R, 8, Math.round(w.base * 0.62));
-        var low = cy / w.base;
-        var span = storm ? ri(R, 70, 130) : Math.round(ri(R, 26, 60) * (0.8 + low));
-        var c = { x: ri(R, 0, W - 1), y: cy, span: span, storm: storm, flat: 0.45 + 0.25 * (1 - low), puffs: [] };
-        var k = Math.max(3, Math.round(span / 7));
-        for (var j = 0; j < k; j++) {
-            var u = j / (k - 1) * 2 - 1;
-            var r = Math.max(2, Math.round((storm ? 9 : 6) * (1 - u * u * 0.7) * (0.6 + R() * 0.6)));
-            c.puffs.push({ dx: Math.round(u * span / 2 + (R() - 0.5) * 6), dy: -Math.round(r * c.flat) + ri(R, 0, 1), r: r });
-        }
-        w.clouds.push(c);
-    }
+    genSky(w, R);
 
     w.waterLines = [];
     for (var y = w.yW + 1; y < w.yP + 6; y += 2)
@@ -229,6 +215,63 @@ function create(W, H, seed, opts) {
     w.hedge = [];
     for (x = -4; x < W + 8; x += ri(R, 6, 11)) w.hedge.push({ x: x, r: ri(R, 4, 7) });
 
+    initLife(w, R);
+
+    // Silueta de la ciudad: lo que está arriba de sky[x] se ve contra el cielo.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(w.base);
+    for (var d = 0; d < 3; d++)
+        for (i = 0; i < w.layers[d].length; i++) {
+            var bb = w.layers[d][i];
+            for (j = 0; j < bb.tiers.length; j++) {
+                var T = bb.tiers[j];
+                for (var tx = 0; tx < T.w; tx++) {
+                    var top = T.top;
+                    if (bb.slant) {
+                        // Techo en diagonal: la columna empieza donde la alcanza el corte.
+                        var off = bb.slant.dir > 0 ? tx : T.w - 1 - tx, rr = 0;
+                        while (rr < bb.slant.h && Math.max(1, Math.round(T.w * (rr + 1) / bb.slant.h)) <= off) rr++;
+                        top += rr;
+                    }
+                    var sx = T.x + tx;
+                    if (sx >= 0 && sx < W && top < w.sky[sx]) w.sky[sx] = top;
+                }
+            }
+        }
+    for (i = 0; i < 4; i++) w.pigeons.push(newPigeon(w, true, ri(R, 20, W - 20)));
+    for (i = 0; i < 2; i++) w.pigeons.push(newPigeon(w, false, ri(R, 30, W - 30)));
+    return w;
+}
+
+// Estrellas y nubes; comparten todas las escenas (usan w.base como horizonte).
+function genSky(w, R) {
+    var W = w.W, H = w.H, i, j;
+    w.stars = [];
+    for (i = 0; i < Math.round(W * H / 900); i++)
+        w.stars.push({ x: ri(R, 0, W - 1), y: ri(R, 0, Math.round(w.base * 0.75)), b: 0.3 + R() * 0.7 });
+
+    // Nubes alargadas en capas: más anchas y planas cuanto más cerca del horizonte.
+    w.clouds = [];
+    var nc = Math.round(W / 50) + 3;
+    for (i = 0; i < nc + 7; i++) {
+        var storm = i >= nc;
+        var cy = storm ? ri(R, 4, 50) : ri(R, 8, Math.round(w.base * 0.62));
+        var low = cy / w.base;
+        var span = storm ? ri(R, 70, 130) : Math.round(ri(R, 26, 60) * (0.8 + low));
+        var c = { x: ri(R, 0, W - 1), y: cy, span: span, storm: storm, flat: 0.45 + 0.25 * (1 - low), puffs: [] };
+        var k = Math.max(3, Math.round(span / 7));
+        for (j = 0; j < k; j++) {
+            var u = j / (k - 1) * 2 - 1;
+            var r = Math.max(2, Math.round((storm ? 9 : 6) * (1 - u * u * 0.7) * (0.6 + R() * 0.6)));
+            c.puffs.push({ dx: Math.round(u * span / 2 + (R() - 0.5) * 6), dy: -Math.round(r * c.flat) + ri(R, 0, 1), r: r });
+        }
+        w.clouds.push(c);
+    }
+}
+
+// Listas de la simulación, temporizadores y estado del clima (comunes a todas las escenas).
+function initLife(w, R) {
+    var W = w.W;
     w.people = [];
     w.pigeons = [];
     w.flocks = [];
@@ -261,31 +304,6 @@ function create(W, H, seed, opts) {
     w.sparks = [];
     w.hour = 12;
     w.lock = false;            // setWeather fija el clima (arneses de prueba)
-
-    // Silueta de la ciudad: lo que está arriba de sky[x] se ve contra el cielo.
-    w.sky = [];
-    for (x = 0; x < W; x++) w.sky.push(w.base);
-    for (var d = 0; d < 3; d++)
-        for (i = 0; i < w.layers[d].length; i++) {
-            var bb = w.layers[d][i];
-            for (j = 0; j < bb.tiers.length; j++) {
-                var T = bb.tiers[j];
-                for (var tx = 0; tx < T.w; tx++) {
-                    var top = T.top;
-                    if (bb.slant) {
-                        // Techo en diagonal: la columna empieza donde la alcanza el corte.
-                        var off = bb.slant.dir > 0 ? tx : T.w - 1 - tx, rr = 0;
-                        while (rr < bb.slant.h && Math.max(1, Math.round(T.w * (rr + 1) / bb.slant.h)) <= off) rr++;
-                        top += rr;
-                    }
-                    var sx = T.x + tx;
-                    if (sx >= 0 && sx < W && top < w.sky[sx]) w.sky[sx] = top;
-                }
-            }
-        }
-    for (i = 0; i < 4; i++) w.pigeons.push(newPigeon(w, true, ri(R, 20, W - 20)));
-    for (i = 0; i < 2; i++) w.pigeons.push(newPigeon(w, false, ri(R, 30, W - 30)));
-    return w;
 }
 
 function makeTree(R, x, cy, H) {
@@ -540,14 +558,17 @@ function occluded(w, x, y, depth) {
 function sunPos(w, hour) {
     if (hour < 5.6 || hour > 19.4) return null;
     var f = (hour - 5.6) / 13.8, s = Math.sin(Math.PI * f);
-    return { x: Math.round(w.W * (0.08 + 0.84 * f)), y: Math.round(w.base - s * (w.base - 16)), low: 1 - s };
+    // w.span (playa) acorta el recorrido para que el sol no se esconda detrás del cabo.
+    var fx = w.span ? w.span[0] + (w.span[1] - w.span[0]) * f : 0.08 + 0.84 * f;
+    return { x: Math.round(w.W * fx), y: Math.round(w.base - s * (w.base - 16)), low: 1 - s };
 }
 
 function moonPos(w, hour) {
     var hh = hour < 12 ? hour + 24 : hour;
     if (hh < 19.2 || hh > 30.2) return null;
     var f = (hh - 19.2) / 11, s = Math.sin(Math.PI * f);
-    return { x: Math.round(w.W * (0.88 - 0.76 * f)), y: Math.round(w.base - s * (w.base - 18)) };
+    var fx = w.span ? w.span[1] - (w.span[1] - w.span[0]) * f : 0.88 - 0.76 * f;
+    return { x: Math.round(w.W * fx), y: Math.round(w.base - s * (w.base - 18)) };
 }
 
 function skyAt(P, t) {
@@ -885,7 +906,9 @@ function drawRoofSnow(ctx, w, d, P) {
     ctx.globalAlpha = 1;
 }
 
+// Capa de la escena (ciudad o playa): todo lo fijo que se repinta cada ~30 s.
 function drawCity(ctx, w, P, t) {
+    if (w.scene === "beach") return drawBeach(ctx, w, P, t);
     var W = w.W, H = w.H, hour = P.hour;
     ctx.clearRect(0, 0, W, H);
     w.refl = [];
@@ -1017,6 +1040,7 @@ function drawCity(ctx, w, P, t) {
 
 function drawFront(ctx, w, P) {
     ctx.clearRect(0, 0, w.W, w.H);
+    if (w.scene === "beach") return drawPalms(ctx, w, P);
     var base = lit([62, 86, 84], P), dark = css(mul(base, 0.68)), mid = css(base), light = css(mix(base, [190, 220, 170], 0.25));
     // Con nieve, lo alto de cada copa se pinta blanco.
     if (P.snowCover > 0.15) light = css(mix(mix(base, [190, 220, 170], 0.25), lit([236, 240, 248], P), clamp(P.snowCover * 1.2, 0, 1)));
@@ -1049,6 +1073,7 @@ var DOGS = ["#c89a60", "#3a3030", "#f0e8dc", "#8a6a4a"];
 var CARS = ["#d04848", "#4870d0", "#e8e8e8", "#303038", "#e0b040", "#60a070", "#9090a0"];
 
 function lanes(w) {
+    if (w.lanes) return w.lanes;
     var out = [];
     for (var y = w.ground + 8; y < w.H - 3; y += 6) out.push(y);
     return out;
@@ -1106,7 +1131,7 @@ function step(w, dt, hour, P) {
         w.rainTarget = R() < w.rainChance ? 0.5 + R() * 0.5 : 0;
         if (w.rain < 0.05) {
             var m = w.month;
-            w.snow = w.rainTarget > 0 && R() < (m === 11 || m <= 1 ? 0.55 : (m === 2 || m === 10 ? 0.15 : 0));
+            w.snow = w.rainTarget > 0 && !w.noSnow && R() < (m === 11 || m <= 1 ? 0.55 : (m === 2 || m === 10 ? 0.15 : 0));
         }
         w.storm = w.rainTarget > 0.75 && !w.snow && R() < 0.6;
         T.weather = (w.rainTarget > 0 ? 300 : 900) + R() * 1200;
@@ -1254,7 +1279,7 @@ function step(w, dt, hour, P) {
     T.pigeon -= dt;
     if (T.pigeon <= 0) {
         T.pigeon = 8 + R() * 20;
-        if (awake && w.pigeons.length < 7 && P.rain < 0.5) {
+        if (awake && w.scene === "city" && w.pigeons.length < 7 && P.rain < 0.5) {
             var onRail = R() < 0.55;
             var ng = newPigeon(w, onRail, 0);
             ng.tx = 20 + R() * (W - 40);
@@ -1301,7 +1326,7 @@ function step(w, dt, hour, P) {
 
     // Autos en la calle de enfrente.
     T.car -= dt;
-    if (T.car <= 0) {
+    if (T.car <= 0 && w.scene === "city") {
         T.car = (1.5 + R() * 4) / Math.max(bz, 0.1);
         var cd = R() < 0.5 ? 1 : -1;
         var bus = R() < 0.12, taxi = !bus && R() < 0.15;
@@ -1395,6 +1420,8 @@ function step(w, dt, hour, P) {
         w.splashes[i].life -= dt;
         if (w.splashes[i].life <= 0) w.splashes.splice(i, 1);
     }
+
+    if (w.scene === "beach") stepBeach(w, dt, hour, P);
 }
 
 var FIREWORKS = ["#ff5f6d", "#ffd35f", "#5ff2ff", "#9dff6a", "#c08cff", "#ffffff", "#ff9a3c", "#ff7ad9"];
@@ -1640,8 +1667,10 @@ function drawAmbient(ctx, w, P, t) {
         ctx.globalAlpha = 1;
     }
 
+    if (w.scene === "beach") drawBeachAmbient(ctx, w, P, t);
+
     // Ondas que se desplazan sobre el agua.
-    var wTop = w.yW, wBot = w.yP + 6, wh = wBot - wTop;
+    var wTop = w.yW, wBot = w.wBot || w.yP + 6, wh = wBot - wTop;
     ctx.fillStyle = css(mix(P.water, [255, 255, 255], 0.35));
     for (i = 0; i < 46; i++) {
         var ry0 = wTop + 2 + (i * 7) % (wh - 3);
@@ -1741,6 +1770,7 @@ function drawLife(ctx, w, P, t) {
 
     // Barcos.
     for (i = 0; i < w.boats.length; i++) drawBoat(ctx, w.boats[i], P, t);
+    if (w.swimmers) for (i = 0; i < w.swimmers.length; i++) drawSwimmer(ctx, w.swimmers[i], P, t);
 
     // Autos.
     for (i = 0; i < w.cars.length; i++) drawCar(ctx, w.cars[i], P);
@@ -1773,9 +1803,11 @@ function drawLife(ctx, w, P, t) {
         else ground.push({ y: g.state === "idle" || g.state === "peck" ? g.y + 2 : 999, g: g });
     }
     for (i = 0; i < w.people.length; i++) ground.push({ y: w.people[i].y, p: w.people[i] });
+    if (w.crabs) for (i = 0; i < w.crabs.length; i++) ground.push({ y: w.crabs[i].y, c: w.crabs[i] });
     ground.sort(function (a, b) { return a.y - b.y; });
     for (i = 0; i < ground.length; i++) {
         if (ground[i].p) drawPerson(ctx, ground[i].p, P);
+        else if (ground[i].c) drawCrab(ctx, ground[i].c, P, t);
         else drawPigeon(ctx, ground[i].g, P, t);
     }
 
@@ -2216,5 +2248,566 @@ function drawBoat(ctx, b, P, t) {
         ctx.globalAlpha = 0.25;
         rect(ctx, bx(-14, 28), y + 9, 28, 2, "#ffe2a0");
         ctx.globalAlpha = 1;
+    }
+}
+
+// ---------- escena: playa ----------
+// Comparte con la ciudad el cielo, las nubes, el clima, la gente, los barcos y las aves; cambia el
+// paisaje (mar abierto, cabo con faro, arena con sombrillas, palmeras) y agrega bañistas,
+// cangrejos, una fogata de noche y el haz del faro. Aquí no nieva (la nieve se vuelve lluvia).
+
+var BEACH_UMBRELLAS = [["#e8504a", "#f4f0e8"], ["#3a7ad0", "#f4f0e8"], ["#f2c14e", "#e8504a"], ["#4fb3a0", "#f4f0e8"],
+    ["#e87ab0", "#f6e6a0"], ["#7a5fc0", "#f2c14e"]];
+var TOWELS = ["#e8504a", "#3a7ad0", "#f2c14e", "#4fb3a0", "#e87ab0", "#f4f0e8"];
+var RINGS = ["#e8504a", "#f2c14e", "#4fb3a0", "#e87ab0"];
+
+// Columna de pantalla de la columna x del cabo (x = 0 en el borde de la pantalla).
+function capeX(w, x) { return w.cape.side < 0 ? x : w.W - 1 - x; }
+
+function createBeach(W, H, seed, opts) {
+    var R = rng(seed || 7), i, x;
+    var w = { W: W, H: H, opts: opts || {}, scene: "beach", noSnow: true };
+    w.yW = Math.round(H * 0.5);        // horizonte del mar
+    w.base = w.yW;                     // el sol sale y se pone en el mar
+    w.axis = w.yW - 1;
+    w.yP = Math.round(H * 0.72);       // orilla
+    w.wBot = w.yP;                     // fondo del agua para ondas y brillos
+    w.ground = w.yP + 4;
+    w.windows = []; w.antennas = []; w.signs = []; w.tvs = []; w.leds = []; w.screens = [];
+    w.ads = []; w.bigAds = []; w.refl = []; w.layers = [[], [], []];
+    w.lamps = []; w.benches = []; w.trees = []; w.hedge = [];
+
+    // Cabo rocoso con faro en un lado: alto junto al borde y con acantilado en la punta.
+    var side = R() < 0.5 ? -1 : 1, cw = Math.round(W * (0.18 + R() * 0.07)), ch = Math.round(H * (0.1 + R() * 0.04));
+    var p1 = R() * 6, p2 = R() * 6;
+    w.cape = { side: side, w: cw, top: [] };
+    w.span = side < 0 ? [0.3, 0.92] : [0.08, 0.7];
+    for (x = 0; x < cw; x++) {
+        var u = x / cw;
+        var hgt = ch * (1 - Math.pow(u, 3)) + 2 * Math.sin(x * 0.09 + p1) + Math.sin(x * 0.23 + p2);
+        w.cape.top.push(Math.round(w.yW - Math.max(1, hgt)));
+    }
+    var li = Math.round(cw * 0.6);
+    for (i = -4; i <= 4; i++) w.cape.top[li + i] = w.cape.top[li];
+    var lx = capeX(w, li), ly = w.cape.top[li];
+    w.lighthouse = { x: lx, y: ly, lampX: lx, lampY: ly - 19 };
+
+    // Islas lejanas del otro lado.
+    w.islands = [];
+    var ix = side < 0 ? W * (0.7 + R() * 0.15) : W * (0.15 + R() * 0.15);
+    w.islands.push({ x: Math.round(ix), w: Math.round(W * (0.05 + R() * 0.04)), h: ri(R, 4, 8) });
+    w.islands.push({ x: Math.round(ix + (side < 0 ? -1 : 1) * W * (0.08 + R() * 0.05)), w: Math.round(W * 0.025), h: ri(R, 2, 4) });
+
+    // Silueta contra el cielo: horizonte, cabo, faro e islas.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(w.yW);
+    for (x = 0; x < cw; x++) w.sky[capeX(w, x)] = w.cape.top[x];
+    for (i = -2; i <= 2; i++) if (lx + i >= 0 && lx + i < W) w.sky[lx + i] = ly - 22;
+    for (i = 0; i < w.islands.length; i++) {
+        var is = w.islands[i];
+        for (x = -is.w; x <= is.w; x++) {
+            var sx = is.x + x;
+            if (sx >= 0 && sx < W) w.sky[sx] = Math.min(w.sky[sx], w.yW - Math.round(is.h * Math.sqrt(1 - (x / is.w) * (x / is.w))));
+        }
+    }
+
+    genSky(w, R);
+
+    // Ondas fijas del mar: más largas cerca de la orilla, por la perspectiva.
+    w.waterLines = [];
+    for (var y = w.yW + 1; y < w.yP - 1; y += 2) {
+        var near = (y - w.yW) / (w.yP - w.yW);
+        for (i = 0; i < Math.round(W / 26); i++)
+            w.waterLines.push({ x: ri(R, 0, W - 1), y: y, len: Math.round((2 + R() * 6) * (0.5 + 1.5 * near)), light: R() < 0.5 });
+    }
+
+    // Arena: granos y conchitas.
+    w.sand = [];
+    for (i = 0; i < Math.round(W * (H - w.ground) / 50); i++)
+        w.sand.push({ x: ri(R, 0, W - 1), y: ri(R, w.ground + 1, H - 1), light: R() < 0.5 });
+    w.shells = [];
+    for (i = 0; i < Math.round(W / 50); i++)
+        w.shells.push({ x: ri(R, 0, W - 1), y: ri(R, w.yP + 3, H - 2), col: rgb(pick(R, ["#f4ece0", "#f0c8c0", "#e6d8f2"])) });
+
+    // Fila de sombrillas; una es la torre del salvavidas y otra la fogata.
+    w.rowY = w.yP + 34;
+    w.spots = [];
+    for (x = ri(R, 20, 50); x < W - 20; x += ri(R, 46, 78)) {
+        var cols = pick(R, BEACH_UMBRELLAS);
+        w.spots.push({ kind: "umbrella", x: x, y: w.rowY + ri(R, -2, 2), col: [rgb(cols[0]), rgb(cols[1])], towel: rgb(pick(R, TOWELS)),
+            chair: R() < 0.4, bather: R() < 0.55, skin: rgb(pick(R, SKINS)), suit: rgb(pick(R, TOPS)) });
+    }
+    if (w.spots.length >= 3) {
+        var tw = ri(R, 0, w.spots.length - 1), fi = (tw + 1 + ri(R, 0, w.spots.length - 2)) % w.spots.length;
+        w.spots[tw].kind = "tower";
+        w.spots[fi].kind = "fire";
+    }
+    w.castle = { x: ri(R, 30, W - 30), y: w.yP + 22 };
+    // Cosas planas en la arena de enfrente (la gente puede pasar encima).
+    w.props = [];
+    var kinds = ["towel", "towel", "ball", "board", "bucket", "steps", "steps"];
+    for (i = 0; i < Math.round(W / 55); i++) {
+        var py = ri(R, w.rowY + 6, H - 8);
+        if (py >= H - 6) continue;
+        w.props.push({ kind: pick(R, kinds), x: ri(R, 10, W - 20), y: py, col: rgb(pick(R, TOWELS)), skin: rgb(pick(R, SKINS)),
+            suit: rgb(pick(R, TOPS)), bather: R() < 0.6, dir: R() < 0.5 ? 1 : -1 });
+    }
+
+    // Carriles: tres a la orilla del agua y el resto delante de las sombrillas.
+    w.lanes = [w.yP + 5, w.yP + 10, w.yP + 15];
+    for (y = w.rowY + 8; y < H - 3; y += 6) w.lanes.push(y);
+
+    // Palmeras: una grande del lado de las islas y una baja del lado del cabo (no tapa el faro).
+    var far = side < 0 ? 1 : -1;
+    w.palms = [
+        makePalm(R, far > 0 ? W - ri(R, 6, 22) : ri(R, 6, 22), -far, Math.round(H * (0.3 + R() * 0.06))),
+        makePalm(R, far > 0 ? ri(R, 2, 14) : W - ri(R, 2, 14), far, Math.round(H * (0.56 + R() * 0.05)))
+    ];
+    w.tufts = [];
+    for (x = ri(R, 0, 20); x < W; x += ri(R, 30, 90)) w.tufts.push({ x: x, n: ri(R, 4, 8), seed: ri(R, 0, 999) });
+
+    initLife(w, R);
+    w.swimmers = [];
+    w.crabs = [];
+    w.timers.swim = 0;
+    w.timers.crab = 8;
+    return w;
+}
+
+function makePalm(R, x, lean, top) {
+    var p = { x: x, lean: lean, top: top, bend: ri(R, 14, 24), fronds: [] };
+    var A = [-Math.PI + 0.1, -Math.PI + 0.5, -Math.PI + 0.95, -Math.PI / 2 - 0.25, -Math.PI / 2 + 0.3, -0.95, -0.5, -0.1,
+        Math.PI - 0.45, 0.45];
+    for (var i = 0; i < A.length; i++)
+        p.fronds.push({ a: A[i] + (R() - 0.5) * 0.2, len: ri(R, 24, 34), droop: 0.3 + R() * 0.45 });
+    return p;
+}
+
+// Capa de la playa: mar, cabo, faro, arena, sombrillas y castillo (se repinta cada ~30 s).
+function drawBeach(ctx, w, P, t) {
+    var W = w.W, H = w.H, yW = w.yW, yP = w.yP, hour = P.hour, i, x, y;
+    ctx.clearRect(0, 0, W, H);
+
+    // Mar: más oscuro en el horizonte y turquesa cerca de la orilla cuando hay sol.
+    var deep = P.waterDeep, shore = mix(P.water, [64, 186, 190], 0.45 * P.amb * (1 - P.rain * 0.7));
+    for (y = yW; y < yP + 2; y += 2)
+        rect(ctx, 0, y, W, 2, css(mix(deep, shore, Math.pow((y - yW) / (yP - yW), 0.8))));
+    rect(ctx, 0, yW, W, 1, css(mix(P.hor, deep, 0.4)));
+    ctx.globalAlpha = 0.35;
+    var wl = css(mix(P.water, [255, 255, 255], 0.25)), wd = css(mul(P.waterDeep, 0.8));
+    for (i = 0; i < w.waterLines.length; i++) {
+        var l = w.waterLines[i];
+        rect(ctx, l.x, l.y, l.len, 1, l.light ? wl : wd);
+    }
+    ctx.globalAlpha = 1;
+
+    // Islas lejanas, casi del color del horizonte.
+    var isl = css(mix(lit([86, 112, 104], P), P.haze, 0.6));
+    for (i = 0; i < w.islands.length; i++) {
+        var is = w.islands[i];
+        for (x = -is.w; x <= is.w; x++) {
+            var hh = Math.round(is.h * Math.sqrt(1 - (x / is.w) * (x / is.w)));
+            if (hh > 0) rect(ctx, is.x + x, yW - hh, 1, hh, isl);
+        }
+    }
+
+    // Cabo: roca con pasto arriba; la cara del acantilado (la punta) más oscura.
+    var rock = mix(lit([138, 120, 108], P), P.haze, 0.25), grass = mix(lit([98, 140, 84], P), P.haze, 0.25);
+    var cape = w.cape, rockC = css(rock), rockD = css(mul(rock, 0.84)), rockF = css(mul(rock, 0.72)), rockL = css(mix(rock, [255, 240, 220], 0.15));
+    var grassC = css(grass), grassD = css(mul(grass, 0.78));
+    for (x = 0; x < cape.w; x++) {
+        var sx = capeX(w, x), top = cape.top[x], u = x / cape.w, face = u > 0.78;
+        rect(ctx, sx, top, 1, yW + 2 - top, face ? rockF : rockC);
+        // Estratos: líneas oscuras cada pocos pixeles, cortadas en tramos.
+        for (y = top + 4 + Math.floor(hash2(Math.floor(x / 9), 4) * 3); y < yW; y += 5)
+            if (hash2(Math.floor(x / 6), y) < 0.7) rect(ctx, sx, y, 1, 1, face ? css(mul(rock, 0.6)) : rockD);
+        if (!face && hash2(Math.floor(x / 5), 9) < 0.3) rect(ctx, sx, top + 3, 1, 2, rockL);
+        if (yW - top > 3) {
+            var gh = face ? 1 : 2 + Math.floor(hash2(Math.floor(x / 4), 11) * 2);
+            rect(ctx, sx, top, 1, gh, grassC);
+            rect(ctx, sx, top + gh, 1, 1, grassD);
+        }
+    }
+    // Espuma al pie del cabo.
+    ctx.globalAlpha = 0.6;
+    for (x = 0; x < cape.w; x += 3) rect(ctx, capeX(w, x), yW + 2, 2, 1, css(lit([236, 244, 248], P)));
+    ctx.globalAlpha = 1;
+    drawLighthouse(ctx, w, P);
+
+    // Neblina sobre el mar y el cabo.
+    if (P.fog > 0.02) {
+        ctx.fillStyle = css(P.fogc);
+        for (y = yW - 40; y < yP; y += 2) {
+            var mu = 1 - Math.abs(y - yW) / 42;
+            ctx.globalAlpha = 0.55 * P.fog * clamp(mu, 0.15, 1);
+            ctx.fillRect(0, y, W, 2);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // Arena: mojada junto al agua y seca más arriba; con lluvia toda se oscurece.
+    var wet = lit([184, 158, 120], P), dry = mix(lit([228, 206, 160], P), wet, P.rain * 0.55);
+    rect(ctx, 0, yP, W, H - yP, css(dry));
+    rect(ctx, 0, yP, W, 4, css(wet));
+    rect(ctx, 0, yP + 4, W, 2, css(mix(wet, dry, 0.5)));
+    var sl = css(mix(dry, [255, 255, 255], 0.25)), sd = css(mul(dry, 0.86));
+    for (i = 0; i < w.sand.length; i++) rect(ctx, w.sand[i].x, w.sand[i].y, 1, 1, w.sand[i].light ? sl : sd);
+    for (i = 0; i < w.shells.length; i++) rect(ctx, w.shells[i].x, w.shells[i].y, 2, 1, css(lit(w.shells[i].col, P)));
+
+    drawCastle(ctx, w.castle, dry, P);
+    var open = hour >= 8.5 && hour < 19 && P.rain < 0.35;
+    for (i = 0; i < w.props.length; i++) drawProp(ctx, w.props[i], P, open, dry);
+
+    // Sombrillas abiertas de día y sin lluvia; de noche se cierran y se van las toallas.
+    var spots = w.spots.slice().sort(function (a, b) { return a.y - b.y; });
+    for (i = 0; i < spots.length; i++) {
+        var s = spots[i];
+        if (s.kind === "tower") drawTower(ctx, s, P);
+        else if (s.kind === "fire") drawFirePit(ctx, s, P);
+        else drawUmbrella(ctx, s, P, open, dry);
+    }
+}
+
+function drawLighthouse(ctx, w, P) {
+    var L = w.lighthouse, x = L.x, y = L.y;
+    var white = lit([238, 236, 230], P), red = lit([206, 70, 64], P), dark = css(lit([52, 52, 64], P));
+    white = mix(white, P.haze, 0.2); red = mix(red, P.haze, 0.2);
+    // Torre de 5 a 3 de ancho con franjas rojas.
+    for (var r = 0; r < 16; r++) {
+        var wd = r < 6 ? 5 : (r < 12 ? 4 : 3), x0 = x - Math.floor(wd / 2);
+        var col = Math.floor(r / 4) % 2 ? red : white;
+        rect(ctx, x0, y - 1 - r, wd, 1, css(col));
+        rect(ctx, x0 + wd - 1, y - 1 - r, 1, 1, css(mul(col, 0.82)));
+    }
+    rect(ctx, x - 2, y - 17, 5, 1, dark);                     // balcón
+    rect(ctx, x - 1, y - 20, 3, 3, P.night > 0.35 ? "#fff1b8" : css(mix([150, 190, 210], P.hor, 0.4)));
+    rect(ctx, x - 1, y - 21, 3, 1, css(red));                 // techo
+    rect(ctx, x, y - 22, 1, 1, dark);
+    rect(ctx, x - 3, y - 2, 2, 2, css(mul(white, 0.9)));      // casita al pie
+    rect(ctx, x - 3, y - 3, 2, 1, css(red));
+}
+
+function drawCastle(ctx, c, sand, P) {
+    var x = c.x, y = c.y, s = css(mix(sand, [150, 120, 80], 0.25)), d = css(mix(sand, [110, 86, 60], 0.4));
+    rect(ctx, x - 6, y - 3, 13, 3, s);
+    rect(ctx, x - 6, y - 6, 3, 3, s); rect(ctx, x + 4, y - 6, 3, 3, s);
+    rect(ctx, x - 1, y - 7, 3, 4, s);
+    rect(ctx, x - 6, y - 7, 1, 1, s); rect(ctx, x - 4, y - 7, 1, 1, s);
+    rect(ctx, x + 4, y - 7, 1, 1, s); rect(ctx, x + 6, y - 7, 1, 1, s);
+    rect(ctx, x, y - 2, 1, 2, d);                              // puerta
+    rect(ctx, x + 6, y - 6, 1, 6, d); rect(ctx, x - 6, y, 13, 1, d);
+    rect(ctx, x, y - 10, 1, 3, css(lit([90, 80, 70], P)));     // banderita
+    rect(ctx, x + 1, y - 10, 2, 1, css(lit([220, 70, 70], P)));
+}
+
+function drawUmbrella(ctx, s, P, open, sand) {
+    var x = s.x, y = s.y, pole = css(lit([90, 80, 76], P));
+    var c0 = lit(s.col[0], P), c1 = lit(s.col[1], P);
+    if (open) {
+        // Sombra, toalla, bañista y camastro.
+        ctx.globalAlpha = 0.25 * P.amb;
+        ell(ctx, x + 2, y + 1, 9, 1.5, css(mul(sand, 0.5)));
+        ctx.globalAlpha = 1;
+        var tw = lit(s.towel, P);
+        rect(ctx, x - 12, y - 1, 10, 3, css(tw));
+        rect(ctx, x - 12, y, 10, 1, css(mix(tw, [255, 255, 255], 0.4)));
+        if (s.bather && P.amb > 0.7) {
+            var sk = css(lit(s.skin, P));
+            rect(ctx, x - 11, y - 1, 2, 2, sk);
+            rect(ctx, x - 9, y - 1, 3, 2, css(lit(s.suit, P)));
+            rect(ctx, x - 6, y - 1, 4, 1, sk);
+        }
+        if (s.chair) {
+            var ch = css(lit([240, 240, 236], P)), fr = css(lit([120, 110, 100], P));
+            rect(ctx, x + 3, y - 3, 7, 1, ch);
+            rect(ctx, x + 9, y - 6, 1, 3, ch); rect(ctx, x + 10, y - 7, 1, 1, ch);
+            rect(ctx, x + 3, y - 2, 1, 2, fr); rect(ctx, x + 9, y - 2, 1, 2, fr);
+        }
+        rect(ctx, x, y - 15, 1, 15, pole);
+        // Toldo a gajos de dos colores.
+        var rows = [[2, -18], [4, -17], [6, -16], [7, -15]];
+        for (var r = 0; r < rows.length; r++)
+            for (var k = -rows[r][0]; k <= rows[r][0]; k++) {
+                var col = Math.floor((k + 7) / 3) % 2 ? c1 : c0;
+                rect(ctx, x + k, y + rows[r][1], 1, 1, css(r === 3 ? mul(col, 0.85) : col));
+            }
+        ctx.fillStyle = css(mul(c0, 0.8));
+        for (k = -7; k <= 7; k += 2) ctx.fillRect(x + k, y - 14, 1, 1);
+        rect(ctx, x, y - 19, 1, 1, pole);
+        return;
+    }
+    // Cerrada: el toldo enrollado en el palo.
+    rect(ctx, x, y - 15, 1, 15, pole);
+    rect(ctx, x, y - 18, 1, 1, css(c0));
+    rect(ctx, x - 1, y - 17, 3, 6, css(c0));
+    rect(ctx, x, y - 16, 1, 4, css(c1));
+    rect(ctx, x, y - 11, 1, 1, css(c0));
+}
+
+// Torre del salvavidas; la bandera dice cómo está el mar.
+function drawTower(ctx, s, P) {
+    var x = s.x, y = s.y, wood = css(lit([150, 116, 84], P)), woodD = css(lit([110, 84, 62], P));
+    rect(ctx, x - 5, y - 13, 1, 13, wood); rect(ctx, x + 5, y - 13, 1, 13, wood);
+    for (var k = 0; k < 4; k++) rect(ctx, x - 4 + k * 2, y - 4 - k * 2, 2, 1, woodD);
+    for (k = 0; k < 4; k++) rect(ctx, x + 6, y - 2 - k * 3, 2, 1, woodD);   // escalera
+    rect(ctx, x - 6, y - 13, 13, 1, woodD);
+    rect(ctx, x - 5, y - 20, 11, 7, css(lit([236, 236, 232], P)));
+    rect(ctx, x - 3, y - 18, 7, 3, P.night > 0.5 ? "#3a3c50" : css(mix([140, 180, 210], P.hor, 0.3)));
+    rect(ctx, x - 6, y - 22, 13, 2, css(lit([210, 64, 60], P)));
+    rect(ctx, x + 7, y - 30, 1, 17, css(lit([80, 80, 90], P)));
+    var flag = P.rain > 0.5 ? [214, 60, 56] : (P.rain > 0.1 || P.fog > 0.3 ? [240, 200, 60] : [70, 170, 80]);
+    rect(ctx, x + 8, y - 30, 4, 3, css(lit(flag, P)));
+}
+
+function drawFirePit(ctx, s, P) {
+    var x = s.x, y = s.y;
+    var stone = css(lit([120, 116, 120], P)), log = css(lit([96, 66, 46], P)), logD = css(lit([70, 48, 36], P));
+    for (var k = -5; k <= 5; k += 2) rect(ctx, x + k, y + (Math.abs(k) > 3 ? -1 : 0), 1, 1, stone);
+    rect(ctx, x - 3, y - 1, 7, 1, log);
+    rect(ctx, x - 2, y - 2, 2, 1, logD); rect(ctx, x + 1, y - 2, 2, 1, logD);
+}
+
+// Palmeras y matas de pasto de duna delante de todo.
+function drawPalms(ctx, w, P) {
+    var H = w.H, i, k;
+    var trunk = lit([140, 106, 74], P), trunkD = css(mul(trunk, 0.75)), trunkL = css(mix(trunk, [255, 240, 210], 0.2));
+    var leaf = lit([62, 132, 72], P), leafD = css(mul(leaf, 0.7)), leafL = css(mix(leaf, [200, 230, 150], 0.3));
+    var nut = css(lit([96, 70, 44], P));
+    for (i = 0; i < w.palms.length; i++) {
+        var p = w.palms[i], n = H + 4 - p.top;
+        for (var r = 0; r <= n; r++) {
+            var u = r / n, py = H + 4 - r, px = Math.round(p.x + p.lean * p.bend * u * u);
+            var wd = u < 0.4 ? 4 : 3;
+            rect(ctx, px - 1, py, wd, 1, r % 4 === 0 ? trunkD : css(trunk));
+            rect(ctx, px - 1, py, 1, 1, r % 4 === 0 ? trunkD : trunkL);
+        }
+        var cx = Math.round(p.x + p.lean * p.bend), cy = p.top;
+        // Primero las hojas de atrás (oscuras), luego las de enfrente.
+        for (var pass = 0; pass < 2; pass++)
+            for (k = 0; k < p.fronds.length; k++) {
+                var f = p.fronds[k];
+                if ((k % 2) !== pass) continue;
+                var lc = pass ? css(leaf) : leafD;
+                for (var st = 0; st <= f.len; st++) {
+                    var v = st / f.len;
+                    var fx = Math.round(cx + Math.cos(f.a) * st), fy = Math.round(cy + Math.sin(f.a) * st * 0.8 + f.droop * v * v * f.len * 0.9);
+                    rect(ctx, fx, fy, 2, 2, lc);
+                    if (pass) rect(ctx, fx, fy, 1, 1, leafL);
+                    // Hojuelas que cuelgan, más largas a media hoja; algunas apuntan hacia arriba.
+                    if (st > 1) {
+                        var lh = Math.round(1 + 4 * Math.sin(v * Math.PI)) + (st % 2);
+                        rect(ctx, fx + (st % 2), fy + 2, 1, lh, st % 3 === 0 ? leafD : lc);
+                        if (st % 3 === 1 && v < 0.8) rect(ctx, fx, fy - 1 - (st % 2), 1, 1 + (st % 2), lc);
+                    }
+                }
+            }
+        disc(ctx, cx - 2, cy + 2, 1.5, nut);
+        disc(ctx, cx + 2, cy + 3, 1.5, nut);
+        rect(ctx, cx - 1, cy - 1, 3, 2, leafD);
+    }
+    var grass = css(lit([96, 128, 70], P)), grassD = css(lit([70, 98, 56], P));
+    for (i = 0; i < w.tufts.length; i++) {
+        var tf = w.tufts[i];
+        for (k = 0; k < tf.n; k++) {
+            var hh = 3 + Math.floor(hash2(tf.seed, k) * 6), lean = k < tf.n / 2 ? -1 : 1;
+            rect(ctx, tf.x + k * 2, H - hh, 1, hh, k % 2 ? grass : grassD);
+            rect(ctx, tf.x + k * 2 + lean, H - hh - 1, 1, 1, grass);
+        }
+    }
+}
+
+// Capa ambiental de la playa (4 fps): olas, espuma en la orilla, haz del faro y fogata.
+function drawBeachAmbient(ctx, w, P, t) {
+    var W = w.W, yP = w.yP, i, x, k;
+    var foam = css(lit([246, 248, 250], P));
+
+    // Olas que llegan: líneas de espuma que avanzan hacia la orilla y se desvanecen.
+    ctx.fillStyle = foam;
+    for (k = 0; k < 3; k++) {
+        var ph = (t / 6 + k / 3) % 1, cyc = Math.floor(t / 6 + k / 3), wy = Math.round(yP - 16 + ph * 15);
+        ctx.globalAlpha = 0.45 * Math.sin(ph * Math.PI);
+        for (x = 0; x < W; x += 6) {
+            if (hash2(x + k * 977, cyc) < 0.35) continue;
+            ctx.fillRect(x, wy + (hash2(x, cyc + 5) < 0.3 ? 1 : 0), 6, 1);
+        }
+    }
+
+    // La orilla: el agua sube por la arena y se retira.
+    var s = 0.5 - 0.5 * Math.cos(t * Math.PI * 2 / 7);
+    var sheet = css(mix(P.water, [110, 200, 200], 0.3 * P.amb));
+    for (x = 0; x < W; x++) {
+        var reach = Math.round(s * (3 + 2 * Math.sin(x * 0.07 + 1.3) + Math.sin(x * 0.19)));
+        if (reach <= 0) continue;
+        ctx.globalAlpha = 0.7;
+        rect(ctx, x, yP, 1, reach, sheet);
+        ctx.globalAlpha = 0.85;
+        rect(ctx, x, yP + reach, 1, 1, foam);
+    }
+    ctx.globalAlpha = 1;
+
+    // Faro: haz que gira, con destello cuando apunta hacia nosotros.
+    if (P.night > 0.35) {
+        var L = w.lighthouse, ang = t * 0.7, c = Math.cos(ang), dir = c > 0 ? 1 : -1, len = Math.round(110 * Math.abs(c));
+        var k2 = P.night * (1 - P.rain * 0.4);
+        ctx.fillStyle = "#fff4c8";
+        for (var dx = 2; dx < len; dx++) {
+            var hh = 1 + Math.floor(dx * 0.07);
+            ctx.globalAlpha = 0.24 * k2 * (1 - dx / len);
+            ctx.fillRect(L.lampX + dir * dx, L.lampY - hh, 1, hh * 2 + 1);
+        }
+        var glow = Math.pow(Math.max(0, Math.sin(ang)), 6);
+        ctx.globalAlpha = (0.2 + 0.5 * glow) * k2;
+        disc(ctx, L.lampX, L.lampY, 2 + glow * 4, "#fff4c8");
+        ctx.globalAlpha = 1;
+    }
+
+    // Fogata de noche (si no llueve).
+    var hour = P.hour;
+    if (P.night > 0.5 && P.rain < 0.2 && (hour >= 19 || hour < 1.5)) {
+        for (i = 0; i < w.spots.length; i++) {
+            if (w.spots[i].kind !== "fire") continue;
+            var fx = w.spots[i].x, fy = w.spots[i].y - 2, tick = Math.floor(t * 4);
+            ctx.globalAlpha = 0.12;
+            ell(ctx, fx, fy + 2, 18, 5, "#ffb060");
+            ell(ctx, fx, fy - 4, 9, 7, "#ffb060");
+            ctx.globalAlpha = 1;
+            for (k = -2; k <= 2; k++) {
+                var fh = 2 + Math.floor(hash2(k + 9, tick) * (4 - Math.abs(k)));
+                rect(ctx, fx + k, fy - fh, 1, fh, "#ff8a30");
+                rect(ctx, fx + k, fy - Math.max(1, fh - 2), 1, Math.max(1, fh - 2), "#ffd060");
+                if (hash2(k, tick + 3) < 0.4) rect(ctx, fx + k, fy - fh - 1, 1, 1, "#e85030");
+            }
+            for (k = 0; k < 3; k++) {
+                var up = (t * 6 + k * 5) % 14;
+                ctx.globalAlpha = 1 - up / 14;
+                rect(ctx, fx - 1 + Math.round(Math.sin(t * 2 + k * 2) * 2), fy - 6 - up, 1, 1, "#ffc060");
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
+}
+
+// Bañistas (de día y sin lluvia) y cangrejos que corren de lado por la orilla.
+function stepBeach(w, dt, hour, P) {
+    var R = Math.random, T = w.timers, W = w.W, i, j;
+    var swim = hour >= 9 && hour < 18.5 && P.rain < 0.3 && P.fog < 0.5;
+    var want = swim ? Math.round(5 * Math.max(1, W / 480) * busy(hour)) : 0;
+    T.swim -= dt;
+    if (T.swim <= 0) {
+        T.swim = 3 + R() * 6;
+        if (w.swimmers.length < want) {
+            w.swimmers.push({ x: 10 + R() * (W - 20), y: w.yP - 4 - Math.floor(R() * 12), dir: R() < 0.5 ? 1 : -1,
+                speed: R() < 0.4 ? 0 : 1.5 + R() * 2, ph: R() * 6, ring: R() < 0.3 ? rgb(pick(R, RINGS)) : null,
+                skin: rgb(pick(R, SKINS)), hair: rgb(pick(R, HAIRS)) });
+        } else if (w.swimmers.length > want) {
+            w.swimmers.splice(Math.floor(R() * w.swimmers.length), 1);
+        }
+    }
+    for (i = 0; i < w.swimmers.length; i++) {
+        var s = w.swimmers[i];
+        s.x += s.dir * s.speed * dt;
+        s.ph += dt;
+        if (s.x < 6 || s.x > W - 6) s.dir = -s.dir;
+    }
+
+    T.crab -= dt;
+    if (T.crab <= 0) {
+        T.crab = 25 + R() * 50;
+        if (w.crabs.length < 2 && P.rain < 0.5) {
+            var cd = R() < 0.5 ? 1 : -1;
+            w.crabs.push({ x: cd > 0 ? -6 : W + 6, y: w.yP + 3 + Math.floor(R() * 4), dir: cd, run: true, tm: 1 + R() * 2, dist: 0 });
+        }
+    }
+    for (i = w.crabs.length - 1; i >= 0; i--) {
+        var c = w.crabs[i];
+        c.tm -= dt;
+        if (c.tm <= 0) {
+            c.run = !c.run;
+            c.tm = c.run ? 1 + R() * 2.5 : 0.5 + R() * 2;
+        }
+        // Si alguien pasa cerca, sale corriendo hacia el otro lado.
+        for (j = 0; j < w.people.length; j++) {
+            var q = w.people[j];
+            if (Math.abs(q.x - c.x) < 10 && Math.abs(q.y - c.y) < 6) { c.run = true; c.dir = q.x < c.x ? 1 : -1; c.tm = 1.2; break; }
+        }
+        if (c.run) { c.x += c.dir * 11 * dt; c.dist += 11 * dt; }
+        if (c.x < -10 || c.x > W + 10) w.crabs.splice(i, 1);
+    }
+}
+
+function drawSwimmer(ctx, s, P, t) {
+    var x = Math.round(s.x), y = Math.round(s.y + Math.sin(s.ph * 2) * 0.6), d = s.dir;
+    var skin = css(lit(s.skin, P)), hair = css(lit(s.hair, P));
+    var ripple = css(mix(lit([235, 245, 250], P), P.water, 0.3));
+    if (s.ring) {
+        var rc = lit(s.ring, P);
+        rect(ctx, x - 3, y + 1, 7, 2, css(rc));
+        rect(ctx, x - 1, y + 1, 1, 2, css(lit([244, 244, 240], P)));
+        rect(ctx, x + 2, y + 1, 1, 2, css(lit([244, 244, 240], P)));
+    }
+    rect(ctx, x - 1, y - 1, 3, 1, hair);
+    rect(ctx, x - 1, y, 3, 2, skin);
+    rect(ctx, d > 0 ? x - 1 : x + 1, y, 1, 1, hair);
+    ctx.globalAlpha = 0.6;
+    rect(ctx, x - 3, y + 2, 7, 1, ripple);
+    ctx.globalAlpha = 1;
+    if (!s.ring && s.speed > 0) {
+        // Brazada de crol.
+        var f = Math.floor(s.ph * 3) % 4;
+        if (f === 0) rect(ctx, x + d * 3, y, 1, 2, skin);
+        else if (f === 1) rect(ctx, x + d * 2, y - 2, 1, 2, skin);
+        else if (f === 2) rect(ctx, x - d * 2, y - 1, 1, 2, skin);
+        else rect(ctx, x - d * 3, y + 1, 2, 1, ripple);
+    }
+}
+
+// Cangrejo de 7×4: e ojos, c caparazón, k tenazas.
+var CRAB = {
+    a: ["..e.e..", "k.ccc.k", "kccccck", "c.c.c.c"],
+    b: ["..e.e..", "k.ccc.k", "kccccck", ".c.c.c."]
+};
+var CRAB_PAL = { e: [36, 24, 24], c: [212, 86, 62], k: [232, 116, 84] };
+function drawCrab(ctx, c, P, t) {
+    var f = c.run && Math.floor(c.dist / 2) % 2 ? CRAB.b : CRAB.a;
+    sprite(ctx, f, Math.round(c.x) - 3, Math.round(c.y) - 3, false, CRAB_PAL, function (v) { return css(lit(v, P)); });
+}
+
+// Toallas, pelota, tabla, cubeta y huellas en la arena de enfrente.
+function drawProp(ctx, o, P, open, sand) {
+    var x = o.x, y = o.y;
+    if (o.kind === "steps") {
+        ctx.fillStyle = css(mul(sand, 0.86));
+        for (var k = 0; k < 8; k++) ctx.fillRect(x + o.dir * k * 4, y + (k % 2) * 2 - Math.floor(k / 3), 2, 1);
+        return;
+    }
+    if (o.kind === "bucket") {
+        rect(ctx, x, y - 3, 3, 3, css(lit(o.col, P)));
+        rect(ctx, x, y - 3, 3, 1, css(mul(lit(o.col, P), 0.8)));
+        rect(ctx, x + 4, y - 4, 1, 4, css(lit([200, 190, 80], P)));
+        return;
+    }
+    if (!open) return;
+    if (o.kind === "ball") {
+        rect(ctx, x, y - 3, 3, 3, css(lit([240, 240, 236], P)));
+        rect(ctx, x, y - 3, 1, 3, css(lit([220, 70, 70], P)));
+        rect(ctx, x + 2, y - 3, 1, 3, css(lit([60, 120, 210], P)));
+        return;
+    }
+    if (o.kind === "board") {
+        var bc = lit(o.col, P);
+        rect(ctx, x + 1, y - 2, 12, 2, css(bc));
+        rect(ctx, x, y - 1, 1, 1, css(bc)); rect(ctx, x + 13, y - 1, 1, 1, css(bc));
+        rect(ctx, x + 1, y - 1, 12, 1, css(mix(bc, [255, 255, 255], 0.35)));
+        return;
+    }
+    // Toalla, a veces con alguien asoleándose.
+    var tw = lit(o.col, P);
+    rect(ctx, x, y - 2, 11, 3, css(tw));
+    rect(ctx, x, y - 1, 11, 1, css(mix(tw, [255, 255, 255], 0.4)));
+    if (o.bather && P.amb > 0.7) {
+        var sk = css(lit(o.skin, P)), hx = o.dir > 0 ? x + 1 : x + 8;
+        rect(ctx, hx, y - 2, 2, 2, sk);
+        rect(ctx, o.dir > 0 ? x + 3 : x + 5, y - 2, 3, 2, css(lit(o.suit, P)));
+        rect(ctx, o.dir > 0 ? x + 6 : x + 1, y - 2, 4, 1, sk);
     }
 }

@@ -9,6 +9,20 @@ Kirigami.FormLayout {
 
     property int cfg_Lines
     property int cfg_LinesDefault: 270
+    property string cfg_Scene
+    property string cfg_SceneDefault: "city"
+
+    readonly property var scenes: [
+        { id: "city", text: "Ciudad junto al agua" },
+        { id: "beach", text: "Playa" }
+    ]
+
+    function sceneIndex(id) {
+        for (var i = 0; i < scenes.length; i++)
+            if (scenes[i].id === id)
+                return i
+        return 0
+    }
 
     // Las líneas que dan pixeles enteros en una pantalla de 1080p.
     readonly property var levels: [
@@ -26,6 +40,15 @@ Kirigami.FormLayout {
     }
 
     QQC2.ComboBox {
+        id: scene
+        Kirigami.FormData.label: "Escenario:"
+        model: page.scenes
+        textRole: "text"
+        currentIndex: page.sceneIndex(page.cfg_Scene)
+        onActivated: page.cfg_Scene = page.scenes[currentIndex].id
+    }
+
+    QQC2.ComboBox {
         id: lines
         Kirigami.FormData.label: "Definición:"
         model: page.levels
@@ -39,7 +62,7 @@ Kirigami.FormLayout {
         wrapMode: Text.WordWrap
         font: Kirigami.Theme.smallFont
         opacity: 0.75
-        text: "Con más definición la ciudad tiene más edificios y detalle, y la gente se ve más chica. "
+        text: "Con más definición la escena tiene más detalle (en la ciudad, más edificios) y la gente se ve más chica. "
             + "Usa algo más de CPU. Al cambiarla se genera de nuevo la escena."
     }
 }
