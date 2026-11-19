@@ -14,7 +14,7 @@
 <script>
 // Arnés de pruebas: compone las mismas capas que main.qml en un solo lienzo.
 // Parámetros: ?scene=beach&hour=18.5&rain=0.8&weather=fog&sim=60&seed=7&px=4&live=1
-// (scene: city, beach o mountain; px: pixeles de pantalla por pixel de arte)
+// (scene: city, beach, mountain o village; px: pixeles de pantalla por pixel de arte)
 var q = new URLSearchParams(location.search);
 var PX = +(q.get("px") || 4), W = Math.ceil(innerWidth / PX), H = Math.ceil(innerHeight / PX);
 var world = create(W, H, +(q.get("seed") || 20251115), { scene: q.get("scene") || "city" });

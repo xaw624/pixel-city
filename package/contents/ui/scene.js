@@ -1111,7 +1111,7 @@ function newPerson(w, x, y, dir, speed, kid) {
         x: x, y: y, dir: dir, speed: speed, dist: R() * 12, kid: kid,
         skin: c(SKINS), hair: c(HAIRS), top: c(TOPS), bottom: c(BOTTOMS),
         style: Math.floor(R() * 3), skirt: !kid && R() < 0.2, bag: !kid && R() < 0.25,
-        umbrella: w.rain > 0.3 && R() < 0.85 ? c(sc === "cyber" ? NEON : UMBRELLAS) : null,
+        umbrella: w.rain > 0.3 && sc !== "village" && R() < 0.85 ? c(sc === "cyber" ? NEON : UMBRELLAS) : null,
         // Ropa según la escena: mochila de excursión, bufanda y gorro, sombrero de paja, paraguas de neón.
         pack: sc === "mountain" && !kid && R() < 0.6 ? c(PACKS) : null,
         scarf: sc === "village" ? c(SCARVES) : null,
@@ -3246,14 +3246,8 @@ function drawMountainFront(ctx, w, P) {
 // Capa ambiental de la montaña (4 fps): humo de la chimenea, peces, luciérnagas y fogata.
 function drawMountainAmbient(ctx, w, P, t) {
     var W = w.W, hour = P.hour, i, k;
-    // Humo: bocanadas que suben y se doblan con el viento.
-    var ch = w.chimney, smoke = lit([214, 214, 220], P), wind = w.cabin.side;
-    for (k = 0; k < 8; k++) {
-        var age = (t * 0.12 + k / 8) % 1;
-        ctx.globalAlpha = 0.4 * (1 - age) * (cabinLit(hour) || P.snowCover > 0.2 || w.month >= 10 || w.month <= 2 ? 1 : 0.45);
-        disc(ctx, ch.x + wind * age * age * 26 + Math.sin(t * 0.8 + k) * age * 2, ch.y - 2 - age * 34, 1 + age * 3.5, css(smoke));
-    }
-    ctx.globalAlpha = 1;
+    drawSmoke(ctx, P, w.chimney.x, w.chimney.y - 2, t, w.cabin.side,
+        cabinLit(hour) || P.snowCover > 0.2 || w.month >= 10 || w.month <= 2 ? 1 : 0.45);
 
     // Peces que saltan: arco y círculos en el agua.
     if (P.amb > 0.4 && P.rain < 0.3) {
@@ -3433,6 +3427,569 @@ function drawDeer(ctx, c, P, t) {
     }
 }
 
+// Humo de chimenea: bocanadas que suben desde (x, y) y se doblan con el viento (wind = ±1).
+function drawSmoke(ctx, P, x, y, t, wind, k) {
+    var smoke = css(lit([214, 214, 220], P));
+    for (var i = 0; i < 8; i++) {
+        var age = (t * 0.12 + i / 8 + x * 0.013) % 1;
+        ctx.globalAlpha = 0.4 * (1 - age) * k;
+        disc(ctx, x + wind * age * age * 26 + Math.sin(t * 0.8 + i) * age * 2, y - age * 34, 1 + age * 3.5, smoke);
+    }
+    ctx.globalAlpha = 1;
+}
+
+// ---------- escena: pueblo nevado ----------
+// Pueblo de montaña en invierno: casas de colores con techos cargados de nieve, iglesia, árbol de
+// Navidad, guirnaldas de luces sobre la calle, puestos de mercado y una pista de hielo con
+// patinadores. Siempre hay nieve en el suelo y casi siempre que hay precipitación es nieve. Algunas
+// noches cruza el cielo un trineo con renos.
+
+var HOUSE_COLS = ["#c8584a", "#d8c8a0", "#6a8ab0", "#7aa070", "#e0b060", "#b07a9a", "#e8e0d0", "#a0c0c8"];
+var HOUSE_ROOFS = ["#5a3a34", "#3a3a48", "#4a4038", "#3a4a3a"];
+var BULBS = [[255, 74, 74], [255, 208, 64], [64, 208, 96], [74, 138, 255], [255, 112, 208]];
+
+function createVillage(W, H, seed, opts) {
+    var R = rng(seed || 7), i, x, y;
+    var w = { W: W, H: H, opts: opts || {}, scene: "village", noGulls: true, noBoats: true, noWater: true,
+        alwaysSnow: true, minSnow: 0.85 };
+    w.yS = Math.round(H * 0.64);       // pie de las casas
+    w.yW = w.yS;
+    w.base = w.yS;
+    w.axis = w.yS;
+    w.yP = w.yS + 16;                  // fin de la calle
+    w.ground = w.yP;
+    w.windows = []; w.antennas = []; w.signs = []; w.tvs = []; w.leds = []; w.screens = [];
+    w.ads = []; w.bigAds = []; w.refl = []; w.layers = [[], [], []];
+    w.lamps = []; w.benches = []; w.trees = []; w.hedge = [];
+
+    // Lomas nevadas con bosque detrás del pueblo.
+    w.hills = [
+        makeRidge(R, W, w.yS, H * 0.3, H * 0.16, Math.round(W / 140) + 2, 0.35, 1.5),
+        makeRidge(R, W, w.yS, H * 0.16, H * 0.07, Math.round(W / 100) + 2, 0.25, 1)
+    ];
+    w.forest = [];
+    for (x = ri(R, -3, 2); x < W + 3; x += ri(R, 3, 5)) w.forest.push({ x: x, h: ri(R, 5, 10) });
+
+    // Casas en fila; la iglesia cerca del centro.
+    w.houses = [];
+    var churchAt = Math.round(W * (0.35 + R() * 0.3)), church = null;
+    for (x = ri(R, -12, 4); x < W + 6; ) {
+        if (!church && x + 50 > churchAt) {
+            church = { kind: "church", x: x, w: 40, wallH: Math.round(H * 0.1), roofH: 14, towerW: 14, towerH: Math.round(H * 0.22),
+                col: rgb("#e4dccc"), roof: rgb("#4a4a5a"), towerLeft: R() < 0.5 };
+            w.houses.push(church);
+            x += 40 + ri(R, 2, 6);
+            continue;
+        }
+        var hw = ri(R, 24, 42), kind = R() < 0.55 ? "gable" : "side";
+        if (kind === "gable" && hw % 2) hw++;
+        var h = { kind: kind, x: x, w: hw, wallH: ri(R, Math.round(H * 0.07), Math.round(H * 0.12)), roofH: kind === "gable" ? Math.round(hw * 0.55) : ri(R, 8, 12),
+            col: rgb(pick(R, HOUSE_COLS)), roof: rgb(pick(R, HOUSE_ROOFS)), timber: R() < 0.3, wreath: R() < 0.6,
+            chimney: R() < 0.75 ? ri(R, 4, hw - 8) : -1, seed: ri(R, 0, 9999), back: R() < 0.3 };
+        if (h.back) { h.wallH += ri(R, 6, 12); }
+        w.houses.push(h);
+        x += hw + ri(R, -2, 5);
+    }
+    // Las de atrás (más altas) primero, para que las de enfrente las tapen.
+    w.houses.sort(function (a, b) { return (b.back ? 1 : 0) - (a.back ? 1 : 0); });
+
+    // Foquitos en los aleros de cada casa (se calculan una vez y se animan en la capa ambiental).
+    w.bulbs = [];
+    for (i = 0; i < w.houses.length; i++) {
+        var hh = w.houses[i];
+        if (hh.kind === "church") continue;
+        var top = w.yS - hh.wallH, n = 0;
+        if (hh.kind === "gable") {
+            var cxh = hh.x + hh.w / 2;
+            for (var r = 1; r < hh.roofH; r += 2) {
+                var half = Math.round((r + 1) * (hh.w / 2 + 2) / hh.roofH);
+                w.bulbs.push({ x: Math.round(cxh - half), y: top - hh.roofH + r + 1, c: n++ % BULBS.length });
+                w.bulbs.push({ x: Math.round(cxh + half), y: top - hh.roofH + r + 1, c: n++ % BULBS.length });
+            }
+        } else {
+            for (x = hh.x - 1; x <= hh.x + hh.w; x += 3) w.bulbs.push({ x: x, y: top + 1, c: n++ % BULBS.length });
+        }
+    }
+
+    // Árbol de Navidad, puestos del mercado y faroles con guirnaldas sobre la acera.
+    var treeX = Math.round(churchAt < W / 2 ? W * (0.62 + R() * 0.12) : W * (0.24 + R() * 0.12));
+    w.xtree = { x: treeX, y: w.yS + 3, h: Math.round(H * 0.25), orn: [] };
+    for (i = 0; i < 46; i++) {
+        var oy = R(), ox = (R() - 0.5) * (0.2 + oy * 0.8);
+        w.xtree.orn.push({ u: oy, v: ox, c: i % BULBS.length, ball: i % 3 === 0 });
+    }
+    w.stalls = [];
+    for (i = 0; i < Math.max(1, Math.round(W / 300)); i++) {
+        var sx = ri(R, 20, W - 40);
+        if (Math.abs(sx - treeX) < 40) sx = (sx + Math.round(W / 2)) % (W - 40) + 10;
+        w.stalls.push({ x: sx, y: w.yS + 3, col: rgb(pick(R, ["#c83a3a", "#3a6ac8", "#3a9a5a"])) });
+    }
+    for (x = ri(R, 16, 40); x < W - 6; x += ri(R, 70, 100))
+        if (Math.abs(x - treeX) > 14) w.lamps.push(x);
+
+    // Pista de hielo en la plaza.
+    w.pond = { x: Math.round(W * (0.3 + R() * 0.4)), y: w.yP + 22, rx: Math.round(Math.max(44, W * 0.12)), ry: 9 };
+    w.lanes = [w.yS + 8, w.yS + 13];
+    for (y = w.pond.y + w.pond.ry + 8; y < H - 3; y += 7) w.lanes.push(y);
+    w.flakes = [];
+    for (i = 0; i < Math.round(W * (H - w.yP) / 60); i++) w.flakes.push({ x: ri(R, 0, W - 1), y: ri(R, w.yP + 1, H - 1) });
+    w.snowman = { x: R() < 0.5 ? ri(R, 12, 40) : W - ri(R, 12, 40), y: H - 2 };
+    // Bancas en la plaza (entre la calle y la pista, donde no camina nadie) y huellas en la nieve.
+    w.pbenches = [];
+    for (x = ri(R, 20, 60); x < W - 20; x += ri(R, 80, 140))
+        if (Math.abs(x - w.pond.x) > w.pond.rx + 10) w.pbenches.push(x);
+    w.steps = [];
+    for (i = 0; i < Math.max(2, Math.round(W / 200)); i++)
+        w.steps.push({ x: ri(R, 0, W - 1), y: w.yP + 4, dx: (R() - 0.5) * 1.6, n: ri(R, 12, 30) });
+    w.drifts = [];
+    for (x = ri(R, -6, 8); x < W + 8; x += ri(R, 24, 60)) w.drifts.push({ x: x, r: ri(R, 4, 8) });
+
+    // Silueta contra el cielo: lomas, bosque, casas, iglesia y árbol.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(Math.min(w.hills[0][x], w.hills[1][x]));
+    for (i = 0; i < w.forest.length; i++) {
+        var fp = w.forest[i], fx = clamp(fp.x, 0, W - 1);
+        for (x = -1; x <= 1; x++) if (fp.x + x >= 0 && fp.x + x < W) w.sky[fp.x + x] = Math.min(w.sky[fp.x + x], w.hills[1][fx] - fp.h);
+    }
+    for (i = 0; i < w.houses.length; i++)
+        for (x = 0; x < W; x++) { var tp = houseTop(w, w.houses[i], x); if (tp < w.sky[x]) w.sky[x] = tp; }
+    for (x = -10; x <= 10; x++) {
+        var tx = treeX + x;
+        if (tx >= 0 && tx < W) w.sky[tx] = Math.min(w.sky[tx], w.xtree.y - w.xtree.h + Math.abs(x) * 2);
+    }
+
+    genSky(w, R);
+    initLife(w, R);
+    w.rainChance = 0.3;
+    w.critters = [];
+    w.sleigh = null;
+    w.timers.skate = 0;
+    w.timers.sleigh = 60;
+    return w;
+}
+
+// Fila más alta de una casa en la columna x (o 1e9 si no la cubre).
+function houseTop(w, h, x) {
+    var top = w.yS - h.wallH;
+    if (h.kind === "church") {
+        var tx = h.towerLeft ? h.x - 4 : h.x + h.w - 10;
+        if (x >= tx && x < tx + h.towerW) {
+            var c = tx + h.towerW / 2 - 0.5, d = Math.abs(x - c);
+            return w.yS - h.towerH - Math.max(0, Math.round(26 - d * 26 / 6)) - (d < 1 ? 4 : 0);
+        }
+    }
+    if (x < h.x - 2 || x >= h.x + h.w + 2) return 1e9;
+    if (h.kind === "side") {
+        var ins = Math.min(x - (h.x - 2), h.x + h.w + 1 - x);
+        return top - Math.min(h.roofH, ins + 1);
+    }
+    var cx = h.x + h.w / 2 - 0.5, dd = Math.abs(x - cx);
+    for (var r = 0; r < h.roofH; r++) if (Math.round((r + 1) * (h.w / 2 + 2) / h.roofH) >= dd) return top - h.roofH + r;
+    return top;
+}
+
+function drawVillage(ctx, w, P, t) {
+    var W = w.W, H = w.H, yS = w.yS, hour = P.hour, i, x, y;
+    ctx.clearRect(0, 0, W, H);
+    var snowL = lit([240, 244, 252], P), snowS = mix(lit([200, 210, 236], P), P.haze, 0.2);
+
+    // Lomas nevadas con pinos.
+    var sun = sunPos(w, hour), side = sun ? clamp((W / 2 - sun.x) / (W * 0.3), -1, 1) * (1 - P.rain) : 0;
+    for (var d = 0; d < 2; d++) {
+        var top = w.hills[d], base = mix(snowL, P.haze, d ? 0.15 : 0.35), shade = mix(snowS, P.haze, d ? 0.15 : 0.35);
+        for (x = 0; x < W; x++) {
+            var amt = top.face[x] * side;
+            rect(ctx, x, top[x], 1, yS - top[x], css(amt < -0.25 ? shade : base));
+            if (d === 0) for (y = top[x] + 3; y < yS; y += 3) if (hash2(x * 3, y) < 0.18) rect(ctx, x, y, 1, 1, css(mix(lit([52, 80, 70], P), P.haze, 0.5)));
+        }
+        if (d === 1) {
+            var pine = mix(lit([40, 70, 58], P), P.haze, 0.2), pc = css(pine), ps = css(mix(snowL, P.haze, 0.1));
+            for (i = 0; i < w.forest.length; i++) {
+                var fp = w.forest[i], fy = top[clamp(fp.x, 0, W - 1)];
+                for (var r = 0; r < fp.h; r++) {
+                    var hw = Math.floor(r * 0.35);
+                    rect(ctx, fp.x - hw, fy - fp.h + r, hw * 2 + 1, 1, r % 3 === 0 ? ps : pc);
+                }
+            }
+            for (x = 0; x < W; x++) for (y = top[x] + 2; y < yS; y += 2) if (hash2(x, y * 5) < 0.22) rect(ctx, x, y, 1, 1, pc);
+        }
+        if (P.fog > 0.02) {
+            ctx.fillStyle = css(P.fogc);
+            for (var fy2 = 0; fy2 < 60; fy2 += 2) { ctx.globalAlpha = (d ? 0.3 : 0.45) * P.fog * (1 - fy2 / 60); ctx.fillRect(0, yS - fy2 - 2, W, 2); }
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // Casas e iglesia.
+    for (i = 0; i < w.houses.length; i++) {
+        if (w.houses[i].kind === "church") drawChurch(ctx, w, w.houses[i], P, hour);
+        else drawHouse(ctx, w, w.houses[i], P, hour);
+    }
+
+    // Acera y calle empedrada con nieve pisada.
+    var walk = mix(lit([150, 146, 160], P), snowL, 0.55), street = mix(lit([120, 116, 130], P), snowL, 0.45);
+    rect(ctx, 0, yS, W, 4, css(walk));
+    rect(ctx, 0, yS + 4, W, 12, css(street));
+    rect(ctx, 0, yS + 4, W, 1, css(mul(walk, 0.85)));
+    ctx.fillStyle = css(mul(street, 0.92));
+    for (y = yS + 6; y < yS + 16; y += 3) for (x = (y % 2) * 3; x < W; x += 6) ctx.fillRect(x, y, 3, 1);
+    ctx.fillStyle = css(mix(street, snowL, 0.5));
+    for (x = 0; x < W; x += 2) if (hash2(x, 77) < 0.3) ctx.fillRect(x, yS + 5 + Math.floor(hash2(x, 78) * 10), 2, 1);
+
+    // Plaza nevada con la pista de hielo.
+    var plaza = snowL;
+    rect(ctx, 0, w.yP, W, H - w.yP, css(plaza));
+    rect(ctx, 0, w.yP, W, 1, css(snowS));
+    var fl = css(snowS);
+    for (i = 0; i < w.flakes.length; i++) rect(ctx, w.flakes[i].x, w.flakes[i].y, 1, 1, fl);
+    ctx.fillStyle = css(mul(snowS, 0.93));
+    for (i = 0; i < w.steps.length; i++) {
+        var st = w.steps[i];
+        for (var k2 = 0; k2 < st.n; k2++) ctx.fillRect(Math.round(st.x + st.dx * k2 * 3 + (k2 % 2) * 2), st.y + k2 * 3, 1, 1);
+    }
+    var bw = lit([120, 84, 58], P), bm = css(lit([50, 50, 60], P));
+    for (i = 0; i < w.pbenches.length; i++) {
+        var bx = w.pbenches[i], by = w.yP + 9;
+        rect(ctx, bx, by, 13, 1, css(bw)); rect(ctx, bx, by + 1, 13, 1, css(mul(bw, 0.8)));
+        rect(ctx, bx, by - 3, 13, 1, css(bw));
+        rect(ctx, bx + 1, by + 2, 1, 3, bm); rect(ctx, bx + 11, by + 2, 1, 3, bm);
+        rect(ctx, bx, by - 1, 13, 1, css(snowL)); rect(ctx, bx, by - 4, 13, 1, css(snowL));
+    }
+    var pd = w.pond, ice = mix(lit([170, 200, 224], P), P.hor, 0.25);
+    ell(ctx, pd.x, pd.y + 1, pd.rx + 2, pd.ry + 1, css(snowS));
+    ell(ctx, pd.x, pd.y, pd.rx, pd.ry, css(ice));
+    ctx.globalAlpha = 0.5;
+    ell(ctx, pd.x - Math.round(pd.rx * 0.3), pd.y - 3, Math.round(pd.rx * 0.4), 2, css(mix(ice, [255, 255, 255], 0.4)));
+    ctx.globalAlpha = 0.35;
+    for (i = 0; i < 9; i++) {
+        var lx = pd.x + Math.round((hash2(i, 81) - 0.5) * pd.rx * 1.4), ly = pd.y + Math.round((hash2(i, 82) - 0.5) * pd.ry * 1.2);
+        rect(ctx, lx, ly, 4 + Math.floor(hash2(i, 83) * 8), 1, css(mul(ice, 0.85)));
+    }
+    ctx.globalAlpha = 1;
+    // Cerca de la pista.
+    var post = css(lit([110, 80, 56], P));
+    for (var a = 0; a < 28; a++) {
+        var ang = a / 28 * Math.PI * 2, px = Math.round(pd.x + Math.cos(ang) * (pd.rx + 4)), py = Math.round(pd.y + Math.sin(ang) * (pd.ry + 3));
+        if (Math.sin(ang) > 0.2) continue;
+        rect(ctx, px, py - 3, 1, 3, post);
+    }
+
+    // Faroles, puestos y árbol (sobre la acera).
+    var pole = css(lit([44, 46, 56], P));
+    for (i = 0; i < w.lamps.length; i++) {
+        var lx2 = w.lamps[i], ltop = yS + 3 - 22;
+        rect(ctx, lx2, ltop, 1, 22, pole);
+        rect(ctx, lx2 - 1, yS + 1, 3, 2, pole);
+        rect(ctx, lx2 - 2, ltop - 3, 5, 4, pole);
+        rect(ctx, lx2 - 1, ltop - 2, 3, 2, P.night > 0.35 ? "#fff0c0" : css(lit([200, 200, 190], P)));
+        rect(ctx, lx2 - 2, ltop - 4, 5, 1, css(snowL));
+        if (P.night > 0.35) {
+            ctx.globalAlpha = 0.18;
+            disc(ctx, lx2, ltop - 1, 7, "#ffe9b0");
+            ctx.globalAlpha = 0.08 * P.night;
+            ell(ctx, lx2, yS + 8, 14, 3, "#ffe1a0");
+            ctx.globalAlpha = 1;
+        }
+    }
+    for (i = 0; i < w.stalls.length; i++) drawStall(ctx, w.stalls[i], P, hour);
+    drawXmasTree(ctx, w.xtree, P);
+}
+
+function drawHouse(ctx, w, h, P, hour) {
+    var yS = w.yS, x = h.x, wd = h.w, top = yS - h.wallH, i, r, k;
+    var wall = lit(h.col, P);
+    if (h.back) wall = mix(wall, P.haze, 0.18);
+    var wallC = css(wall), wallD = css(mul(wall, 0.84)), roof = lit(h.roof, P), roofC = css(roof);
+    var snow = css(lit([240, 244, 252], P)), snowS = css(lit([206, 214, 236], P));
+    var night = P.night > 0.35;
+    rect(ctx, x, top, wd, h.wallH, wallC);
+    rect(ctx, x + wd - 2, top, 2, h.wallH, wallD);
+    if (h.timber) {
+        var beam = css(lit([84, 56, 40], P));
+        rect(ctx, x, top, 1, h.wallH, beam); rect(ctx, x + wd - 1, top, 1, h.wallH, beam);
+        rect(ctx, x, top + Math.round(h.wallH / 2), wd, 1, beam);
+        rect(ctx, x, top, wd, 1, beam);
+        for (k = 0; k < 4; k++) rect(ctx, x + 1 + k, top + Math.round(h.wallH / 2) - 1 - k, 1, 1, beam);
+        for (k = 0; k < 4; k++) rect(ctx, x + wd - 2 - k, top + Math.round(h.wallH / 2) - 1 - k, 1, 1, beam);
+    }
+    // Ventanas por piso; de noche casi todas encendidas, algunas con vela.
+    var floors = Math.max(1, Math.floor((h.wallH - 4) / 10)), n = Math.max(1, Math.floor((wd - 6) / 9));
+    var gap = (wd - n * 5) / (n + 1), door = h.back ? -1 : Math.floor(n / 2);
+    for (var f = 0; f < floors; f++)
+        for (i = 0; i < n; i++) {
+            var wx = Math.round(x + gap + i * (5 + gap)), wy = yS - 11 - f * 10;
+            if (f === 0 && i === door) continue;
+            var on = night && hash2(h.seed + i * 7 + f * 31, Math.floor(hour * 2)) < occupancy(hour) + 0.25;
+            rect(ctx, wx - 1, wy - 1, 7, 7, css(lit([236, 230, 214], P)));
+            rect(ctx, wx, wy, 5, 5, on ? "#ffcf70" : css(mix(lit([90, 110, 140], P), P.hor, 0.3)));
+            rect(ctx, wx + 2, wy, 1, 5, css(lit([236, 230, 214], P)));
+            rect(ctx, wx, wy + 2, 5, 1, css(lit([236, 230, 214], P)));
+            if (on && hash2(h.seed, i + f) < 0.3) rect(ctx, wx + 3, wy + 3, 1, 2, "#fff6d0");
+            rect(ctx, wx - 1, wy + 6, 7, 1, snow);
+            if (!h.back) { rect(ctx, wx - 2, wy - 1, 1, 7, css(mix(roof, wall, 0.3))); rect(ctx, wx + 6, wy - 1, 1, 7, css(mix(roof, wall, 0.3))); }
+        }
+    if (door >= 0) {
+        var dx = Math.round(x + gap + door * (5 + gap)), dcol = lit([96, 60, 44], P);
+        rect(ctx, dx, yS - 9, 5, 9, css(dcol));
+        rect(ctx, dx, yS - 9, 5, 1, css(mul(dcol, 0.7)));
+        if (h.wreath) {
+            rect(ctx, dx + 1, yS - 8, 3, 3, css(lit([50, 120, 60], P)));
+            rect(ctx, dx + 2, yS - 7, 1, 1, css(dcol));
+            rect(ctx, dx + 2, yS - 6, 1, 1, css(lit([210, 50, 50], P)));
+        }
+        if (night) { ctx.globalAlpha = 0.3; disc(ctx, dx + 2, yS - 11, 3, "#ffe0a0"); ctx.globalAlpha = 1; rect(ctx, dx + 2, yS - 11, 1, 1, "#fff0c0"); }
+    }
+    // Techo con nieve gruesa y carámbanos.
+    if (h.chimney >= 0) {
+        var chx = x + h.chimney, cht = top - h.roofH - 2;
+        rect(ctx, chx, cht, 4, h.roofH, css(lit([140, 80, 64], P)));
+        rect(ctx, chx - 1, cht, 6, 1, css(lit([110, 64, 52], P)));
+        rect(ctx, chx - 1, cht - 1, 6, 1, snow);
+    }
+    if (h.kind === "gable") {
+        var cx = x + wd / 2 - 0.5;
+        for (r = 0; r < h.roofH; r++) {
+            var half = Math.round((r + 1) * (wd / 2 + 2) / h.roofH), ry = top - h.roofH + r;
+            var x0 = Math.round(cx - half), x1 = Math.round(cx + half);
+            rect(ctx, x0, ry, x1 - x0 + 1, 1, css(mix(wall, roof, 0.15)));
+            rect(ctx, x0, ry, 3, 1, roofC); rect(ctx, x1 - 2, ry, 3, 1, roofC);
+            rect(ctx, x0, ry, 2, 1, snow); rect(ctx, x1 - 1, ry, 2, 1, snowS);
+            if (r < 3) rect(ctx, x0, ry, x1 - x0 + 1, 1, r === 2 ? snowS : snow);
+        }
+        rect(ctx, Math.round(cx) - 1, top - Math.round(h.roofH * 0.55), 3, 3, night ? "#ffcf70" : css(mix(lit([90, 110, 140], P), P.hor, 0.3)));
+        rect(ctx, x - 2, top, wd + 4, 1, css(mul(roof, 0.7)));
+    } else {
+        // Techo de cuatro aguas visto de frente: alero oscuro abajo y nieve encima.
+        for (r = 0; r < h.roofH; r++) {
+            var ry2 = top - 1 - r, rw = wd + 4 - 2 * r;
+            if (rw <= 4) continue;
+            rect(ctx, x - 2 + r, ry2, rw, 1, r === 0 ? css(mul(roof, 0.8)) : (r === 1 ? roofC : (r === 2 ? snowS : snow)));
+        }
+        rect(ctx, x - 2, top, wd + 4, 1, css(mul(roof, 0.7)));
+    }
+    ctx.fillStyle = css(lit([226, 238, 250], P));
+    for (k = x - 1; k < x + wd + 1; k += 2)
+        if (hash2(k, h.seed) < 0.45) ctx.fillRect(k, top + 1, 1, 1 + Math.floor(hash2(k, h.seed + 1) * 3));
+}
+
+function drawChurch(ctx, w, c, P, hour) {
+    var yS = w.yS, x = c.x, top = yS - c.wallH, i, r;
+    var wall = lit(c.col, P), wallC = css(wall), wallD = css(mul(wall, 0.84)), roofC = css(lit(c.roof, P));
+    var snow = css(lit([240, 244, 252], P)), night = P.night > 0.35;
+    // Nave con techo a dos aguas.
+    rect(ctx, x, top, c.w, c.wallH, wallC);
+    var cx = x + c.w / 2 - 0.5;
+    for (r = 0; r < c.roofH; r++) {
+        var half = Math.round((r + 1) * (c.w / 2 + 2) / c.roofH), ry = top - c.roofH + r;
+        rect(ctx, Math.round(cx - half), ry, half * 2 + 1, 1, r < 3 ? snow : wallD);
+        rect(ctx, Math.round(cx - half), ry, 3, 1, roofC); rect(ctx, Math.round(cx + half) - 2, ry, 3, 1, roofC);
+        rect(ctx, Math.round(cx - half), ry, 2, 1, snow);
+    }
+    rect(ctx, x - 2, top, c.w + 4, 1, roofC);
+    // Vitrales de colores (brillan de noche), rosetón y puerta en arco.
+    var glass = [[220, 70, 70], [70, 120, 220], [240, 200, 70], [80, 180, 100]];
+    for (i = 0; i < 3; i++) {
+        var gx = x + 6 + i * 12;
+        for (var k = 0; k < 4; k++) rect(ctx, gx + (k % 2), top + 4 + Math.floor(k / 2) * 4, 1, 4, night ? css(glass[(i + k) % 4]) : css(mix(lit(glass[(i + k) % 4], P), [60, 70, 90], 0.6)));
+        rect(ctx, gx, top + 3, 2, 1, wallD);
+    }
+    disc(ctx, cx, top - Math.round(c.roofH * 0.45), 2, night ? "#ffd27a" : css(lit([90, 110, 140], P)));
+    var dcol = lit([90, 56, 40], P);
+    rect(ctx, Math.round(cx) - 3, yS - 10, 7, 10, css(dcol));
+    rect(ctx, Math.round(cx) - 2, yS - 11, 5, 1, css(dcol));
+    // Torre con reloj y aguja.
+    var tx = c.towerLeft ? x - 4 : x + c.w - 10, tw = c.towerW, tt = yS - c.towerH;
+    rect(ctx, tx, tt, tw, c.towerH, wallC);
+    rect(ctx, tx + tw - 2, tt, 2, c.towerH, wallD);
+    rect(ctx, tx - 1, tt, tw + 2, 2, wallD);
+    rect(ctx, tx - 1, tt - 1, tw + 2, 1, snow);
+    disc(ctx, tx + tw / 2 - 0.5, tt + 8, 3, css(lit([244, 240, 228], P)));
+    var hr = (P.hour % 12) / 12 * Math.PI * 2, hcx = Math.round(tx + tw / 2 - 0.5), hcy = tt + 8;
+    rect(ctx, hcx, hcy, 1, 1, css(lit([40, 40, 50], P)));
+    rect(ctx, hcx + Math.round(Math.sin(hr) * 2), hcy - Math.round(Math.cos(hr) * 2), 1, 1, css(lit([40, 40, 50], P)));
+    rect(ctx, tx + 4, tt + 14, tw - 8, 6, night ? "#3a3040" : css(mul(wall, 0.5)));    // campanario
+    rect(ctx, tx + tw / 2 - 1, tt + 15, 2, 3, css(lit([200, 160, 70], P)));
+    for (r = 0; r < 26; r++) {
+        var hw = Math.max(0, Math.round((r + 1) * 6 / 26));
+        rect(ctx, Math.round(tx + tw / 2 - 0.5) - hw, tt - 26 + r, hw * 2 + 1, 1, r % 5 === 4 ? snow : roofC);
+        rect(ctx, Math.round(tx + tw / 2 - 0.5) - hw, tt - 26 + r, 1, 1, snow);
+    }
+    var cxs = Math.round(tx + tw / 2 - 0.5), gold = css(lit([220, 180, 80], P));
+    rect(ctx, cxs, tt - 31, 1, 5, gold);
+    rect(ctx, cxs - 1, tt - 30, 3, 1, gold);
+}
+
+// Puesto del mercado navideño con toldo a rayas.
+function drawStall(ctx, s, P, hour) {
+    var x = s.x, y = s.y, wood = lit([140, 100, 70], P), c = lit(s.col, P), white = lit([240, 236, 230], P);
+    var snow = css(lit([240, 244, 252], P)), night = P.night > 0.35;
+    rect(ctx, x, y - 8, 18, 8, css(wood));
+    rect(ctx, x, y - 8, 18, 1, css(mul(wood, 0.75)));
+    rect(ctx, x + 1, y - 12, 1, 4, css(mul(wood, 0.7))); rect(ctx, x + 16, y - 12, 1, 4, css(mul(wood, 0.7)));
+    if (night) { ctx.globalAlpha = 0.25; rect(ctx, x + 2, y - 12, 14, 4, "#ffd890"); ctx.globalAlpha = 1; }
+    for (var k = 0; k < 7; k++) rect(ctx, x + 2 + k * 2, y - 10, 1, 2, css(lit(BULBS[k % BULBS.length], P)));
+    for (var r = 0; r < 4; r++)
+        for (k = -1; k < 20; k++) rect(ctx, x + k, y - 16 + r, 1, 1, css(Math.floor((k + 1) / 3) % 2 ? white : c));
+    rect(ctx, x - 1, y - 17, 21, 1, snow);
+    ctx.fillStyle = css(mul(c, 0.8));
+    for (k = 0; k < 20; k += 3) ctx.fillRect(x + k, y - 12, 2, 1);
+}
+
+// Árbol de Navidad de la plaza: esferas fijas; los foquitos y la estrella brillan en la capa ambiental.
+function drawXmasTree(ctx, T, P) {
+    drawPine(ctx, T.x, T.y, T.h, P, 0);
+    var top = T.y - T.h;
+    rect(ctx, T.x - 4, T.y - 2, 9, 4, css(lit([170, 60, 50], P)));
+    rect(ctx, T.x - 4, T.y - 2, 9, 1, css(lit([210, 180, 80], P)));
+    for (var i = 0; i < T.orn.length; i++) {
+        var o = T.orn[i];
+        if (!o.ball) continue;
+        var oy = Math.round(top + 6 + o.u * (T.h - 12)), ox = Math.round(T.x + o.v * T.h * 0.5);
+        rect(ctx, ox, oy, 2, 2, css(lit(BULBS[o.c], P)));
+    }
+}
+
+function drawVillageFront(ctx, w, P) {
+    var H = w.H, i, snow = css(lit([240, 244, 252], P)), snowS = css(lit([210, 218, 238], P));
+    for (i = 0; i < w.drifts.length; i++) disc(ctx, w.drifts[i].x, H + 3, w.drifts[i].r, snowS);
+    for (i = 0; i < w.drifts.length; i++) disc(ctx, w.drifts[i].x - 1, H + 3, w.drifts[i].r - 1, snow);
+    // Muñeco de nieve con sombrero, bufanda y nariz de zanahoria.
+    var s = w.snowman, x = s.x, y = s.y;
+    disc(ctx, x, y - 6, 6, snowS); disc(ctx, x - 1, y - 7, 5, snow);
+    disc(ctx, x, y - 15, 4, snowS); disc(ctx, x - 1, y - 16, 3, snow);
+    disc(ctx, x, y - 22, 3, snowS); disc(ctx, x - 1, y - 23, 2, snow);
+    var dark = css(lit([36, 34, 40], P));
+    rect(ctx, x - 3, y - 26, 7, 1, dark); rect(ctx, x - 2, y - 30, 5, 4, dark);
+    rect(ctx, x - 2, y - 27, 5, 1, css(lit([190, 50, 50], P)));
+    rect(ctx, x - 2, y - 23, 1, 1, dark); rect(ctx, x + 1, y - 23, 1, 1, dark);
+    rect(ctx, x + 1, y - 22, 3, 1, css(lit([240, 130, 40], P)));
+    rect(ctx, x - 3, y - 19, 7, 2, css(lit([60, 110, 200], P)));
+    rect(ctx, x + 2, y - 17, 2, 3, css(lit([60, 110, 200], P)));
+    rect(ctx, x, y - 15, 1, 1, dark); rect(ctx, x, y - 12, 1, 1, dark);
+    rect(ctx, x - 9, y - 18, 5, 1, css(lit([110, 76, 50], P))); rect(ctx, x + 5, y - 17, 5, 1, css(lit([110, 76, 50], P)));
+}
+
+// Foquitos que cambian de patrón, estrella del árbol, humo de chimeneas y vapor de la pista.
+function drawVillageAmbient(ctx, w, P, t) {
+    var i, night = P.night > 0.3, mode = Math.floor(t / 10) % 3, step4 = Math.floor(t * 4);
+    function bulbOn(i, c) {
+        if (mode === 0) return (i + step4) % 3 !== 0;
+        if (mode === 1) return hash2(i, step4) < 0.7;
+        return true;
+    }
+    function bulb(x, y, i, c) {
+        var cc = mode === 2 ? (c + Math.floor(t * 2)) % BULBS.length : c, on = bulbOn(i, c);
+        var col = BULBS[cc];
+        if (!night) { rect(ctx, x, y, 1, 1, css(mix(lit(col, P), [80, 80, 90], 0.3))); return; }
+        if (!on) { rect(ctx, x, y, 1, 1, css(mul(col, 0.35))); return; }
+        ctx.globalAlpha = 0.28;
+        rect(ctx, x - 1, y - 1, 3, 3, css(col));
+        ctx.globalAlpha = 1;
+        rect(ctx, x, y, 1, 1, css(mix(col, [255, 255, 255], 0.35)));
+    }
+    for (i = 0; i < w.bulbs.length; i++) bulb(w.bulbs[i].x, w.bulbs[i].y, i, w.bulbs[i].c);
+    // Guirnaldas entre faroles: cuelgan en curva.
+    var yL = w.yS + 3 - 22, n = 0;
+    for (i = 0; i + 1 < w.lamps.length; i++) {
+        var a = w.lamps[i], b = w.lamps[i + 1], span = b - a;
+        if (span > 140) continue;
+        for (var x = a + 3; x < b - 1; x += 4) {
+            var u = (x - a) / span, sag = Math.round(Math.sin(u * Math.PI) * 7);
+            rect(ctx, x, yL - 2 + sag, 1, 1, css(lit([40, 44, 40], P)));
+            bulb(x, yL - 1 + sag, n++, n % BULBS.length);
+        }
+    }
+    // Foquitos del árbol y la estrella.
+    var T = w.xtree, top = T.y - T.h;
+    for (i = 0; i < T.orn.length; i++) {
+        var o = T.orn[i];
+        if (o.ball) continue;
+        bulb(Math.round(T.x + o.v * T.h * 0.5), Math.round(top + 6 + o.u * (T.h - 12)), i + 500, o.c);
+    }
+    var st = 0.6 + 0.4 * Math.sin(t * 3);
+    if (night) { ctx.globalAlpha = 0.25 * st; disc(ctx, T.x, top - 1, 5, "#fff0a0"); ctx.globalAlpha = 1; }
+    var sc = night ? "#fff4b0" : css(lit([230, 200, 80], P));
+    rect(ctx, T.x - 1, top - 3, 3, 3, sc); rect(ctx, T.x, top - 5, 1, 7, sc); rect(ctx, T.x - 3, top - 2, 7, 1, sc);
+    // Humo de las chimeneas.
+    for (i = 0; i < w.houses.length; i++) {
+        var h = w.houses[i];
+        if (h.kind === "church" || h.chimney < 0) continue;
+        drawSmoke(ctx, P, h.x + h.chimney + 2, w.yS - h.wallH - h.roofH - 4, t, 1, 0.8);
+    }
+}
+
+// Patinadores en la pista y el trineo nocturno.
+function stepVillage(w, dt, hour, P) {
+    var R = Math.random, T = w.timers, W = w.W, i;
+    var pd = w.pond, want = hour >= 9 && hour < 22 ? Math.round(3 * Math.max(1, W / 480)) : (hour >= 22 || hour < 1 ? 1 : 0);
+    T.skate -= dt;
+    if (T.skate <= 0) {
+        T.skate = 6 + R() * 10;
+        if (w.critters.length < want) {
+            var kid = R() < 0.3, sk = newPerson(w, pd.x, pd.y, 1, 0, kid);
+            sk.kind = "skater"; sk.a = R() * Math.PI * 2; sk.w = (R() < 0.5 ? 1 : -1) * (0.25 + R() * 0.2);
+            sk.k = 0.55 + R() * 0.3;
+            w.critters.push(sk);
+        } else if (w.critters.length > want) w.critters.splice(Math.floor(R() * w.critters.length), 1);
+    }
+    for (i = 0; i < w.critters.length; i++) {
+        var s = w.critters[i], ox = s.x;
+        s.a += s.w * dt;
+        s.x = pd.x + Math.cos(s.a) * pd.rx * s.k;
+        s.y = Math.round(pd.y + 2 + Math.sin(s.a) * (pd.ry - 2) * s.k);
+        s.dir = s.x > ox ? 1 : -1;
+        s.dist += Math.abs(s.x - ox) * 0.25;
+    }
+    // Trineo con renos que cruza el cielo algunas noches.
+    if (w.sleigh) {
+        w.sleigh.x += w.sleigh.dir * 28 * dt;
+        w.sleigh.t += dt;
+        if (w.sleigh.x < -80 || w.sleigh.x > W + 80) w.sleigh = null;
+    } else {
+        T.sleigh -= dt;
+        if (T.sleigh <= 0) {
+            T.sleigh = 240 + R() * 400;
+            if (P.night > 0.8 && P.rain < 0.4 && R() < 0.6) {
+                var d = R() < 0.5 ? 1 : -1;
+                w.sleigh = { x: d > 0 ? -70 : W + 70, y: 14 + R() * w.yS * 0.3, dir: d, t: 0 };
+            }
+        }
+    }
+}
+
+function drawVillageLife(ctx, w, P, t) {
+    var S = w.sleigh;
+    if (!S) return;
+    var d = S.dir, x0 = Math.round(S.x), y0 = Math.round(S.y + Math.sin(S.t * 1.5) * 3);
+    var deer = css(lit([140, 96, 60], P)), ant = css(lit([200, 180, 140], P)), red = css(lit([210, 50, 50], P));
+    var gold = css(lit([230, 190, 80], P)), skin = css(lit([240, 200, 170], P)), white = css(lit([244, 244, 244], P));
+    // Estela de chispas.
+    for (var k = 0; k < 10; k++) {
+        ctx.globalAlpha = 0.6 * (1 - k / 10);
+        rect(ctx, x0 - d * (6 + k * 4), y0 + 3 + Math.round(Math.sin(S.t * 1.5 - k * 0.3) * 2), 1, 1, hash2(k, Math.floor(t * 8)) < 0.5 ? "#fff4b0" : "#ffd060");
+    }
+    ctx.globalAlpha = 1;
+    // Trineo y conductor.
+    rect(ctx, x0 - 5, y0, 10, 3, red);
+    rect(ctx, d > 0 ? x0 + 3 : x0 - 5, y0 - 2, 2, 2, red);
+    rect(ctx, x0 - 6, y0 + 4, 12, 1, gold);
+    rect(ctx, d > 0 ? x0 + 5 : x0 - 6, y0 + 3, 1, 1, gold);
+    rect(ctx, x0 - 2, y0 - 4, 3, 4, red);
+    rect(ctx, x0 - 2, y0 - 6, 3, 2, skin);
+    rect(ctx, x0 - 2, y0 - 7, 3, 1, red); rect(ctx, x0 - 2, y0 - 5, 3, 1, white);
+    rect(ctx, d > 0 ? x0 - 4 : x0 + 2, y0 - 3, 2, 3, css(lit([120, 80, 50], P)));     // costal
+    // Renos en fila con riendas.
+    for (var i = 0; i < 4; i++) {
+        var rx = x0 + d * (10 + i * 9), ry = y0 - 2 + Math.round(Math.sin(S.t * 3 + i) * 1), f = Math.floor(S.t * 6 + i) % 2;
+        rect(ctx, rx - 3, ry, 6, 2, deer);
+        rect(ctx, d > 0 ? rx + 2 : rx - 3, ry - 2, 2, 2, deer);
+        rect(ctx, d > 0 ? rx + 3 : rx - 4, ry - 1, 1, 1, i === 3 ? red : deer);
+        rect(ctx, d > 0 ? rx + 2 : rx - 3, ry - 4, 1, 2, ant); rect(ctx, d > 0 ? rx + 1 : rx - 2, ry - 4, 1, 1, ant);
+        rect(ctx, rx - 3 + (f ? 0 : 1), ry + 2, 1, 2, deer); rect(ctx, rx + 1 + (f ? 1 : 0), ry + 2, 1, 2, deer);
+        rect(ctx, rx - d * 5, ry, 3, 1, css(lit([120, 80, 50], P)));
+    }
+}
+
 // ---------- tabla de escenas ----------
 // Cada escena distinta de la ciudad: create arma el mundo, draw pinta la capa fija (cada ~30 s),
 // front el primer plano, y opcionalmente ambient (4 fps), step (simulación), life (dibujo extra
@@ -3441,8 +3998,10 @@ var SCENES = {
     beach: { create: createBeach, draw: drawBeach, front: drawPalms, ambient: drawBeachAmbient, step: stepBeach,
         life: function (ctx, w, P, t) { for (var i = 0; i < w.swimmers.length; i++) drawSwimmer(ctx, w.swimmers[i], P, t); } },
     mountain: { create: createMountain, draw: drawMountain, front: drawMountainFront, ambient: drawMountainAmbient,
-        step: stepMountain, life: drawMountainLife }
+        step: stepMountain, life: drawMountainLife },
+    village: { create: createVillage, draw: drawVillage, front: drawVillageFront, ambient: drawVillageAmbient,
+        step: stepVillage, life: drawVillageLife }
 };
 
 // Animales que caminan entre la gente (w.critters): se ordenan por profundidad con ella.
-var CRITTERS = { crab: drawCrab, deer: drawDeer };
+var CRITTERS = { crab: drawCrab, deer: drawDeer, skater: function (ctx, c, P) { drawPerson(ctx, c, P); } };

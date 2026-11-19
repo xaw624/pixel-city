@@ -15,7 +15,8 @@ Kirigami.FormLayout {
     readonly property var scenes: [
         { id: "city", text: "Ciudad junto al agua" },
         { id: "beach", text: "Playa" },
-        { id: "mountain", text: "Montaña con cabaña" }
+        { id: "mountain", text: "Montaña con cabaña" },
+        { id: "village", text: "Pueblo nevado" }
     ]
 
     function sceneIndex(id) {

@@ -48,7 +48,7 @@ la configuración del fondo anterior se conserva.
   vida, primer plano), los escala sin suavizado y maneja temporizadores y la pausa.
 - `package/contents/ui/scene.js`: todo el motor (generación, paleta por hora, simulación, dibujo).
   Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador. Escenas (ajuste
-  "Escenario" = `configuration.Scene`): `city` es la base; las demás (`beach`, `mountain`) están en
+  "Escenario" = `configuration.Scene`): `city` es la base; las demás (`beach`, `mountain`, `village`) están en
   la tabla `SCENES` al final con sus funciones `create`, `draw`, `front` y opcionales `ambient`,
   `step`, `life` y `tint`. Comparten cielo, clima y vida. Para agregar una: escribe esas funciones,
   regístrala en `SCENES` y en la lista `scenes` de `config.qml`. Animales que caminan entre la gente
@@ -67,7 +67,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 ```
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
-(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
+(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
 `rainbow`, `fireworks`; llama a `setWeather` y congela el clima).
 
 ## Trampas conocidas
@@ -98,6 +98,9 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   carriles de gente están en `w.lanes` (orilla y delante de las sombrillas, que son fijas).
 - `w.sky[x]` (silueta contra el cielo) debe existir en toda escena: recorta fuegos y relámpagos, y
   fuera de la ciudad oculta el brillo del sol en el agua cuando el sol está detrás de un cerro.
+- Pueblo: siempre hay nieve (`w.alwaysSnow`, `w.minSnow`), nadie saca paraguas y los foquitos se
+  calculan en `createVillage` (`w.bulbs`) y se animan en `drawVillageAmbient`. Los patinadores son
+  personas en `w.critters` (tipo `skater`) que giran en elipse sobre la pista.
 - Montaña: las canoas van en la parte lejana del lago (`w.yW + 1..5`) para no pasar delante de los
   pinos de la orilla ni de la cabaña.
 

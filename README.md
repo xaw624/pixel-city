@@ -25,6 +25,9 @@ completamente por código (sin videos ni imágenes).
   - **Montaña con cabaña**: picos nevados que se reflejan en un lago, bosque de pinos, cabaña con
     chimenea que echa humo, muelle, excursionistas con mochila, venados al amanecer y al atardecer,
     un águila, canoas, peces que saltan, luciérnagas en verano y fogata de noche.
+  - **Pueblo nevado**: casas de colores con techos cargados de nieve, iglesia con reloj, árbol de
+    Navidad, guirnaldas de foquitos que cambian de patrón, mercado navideño, pista de hielo con
+    patinadores, muñeco de nieve y, algunas noches, un trineo con renos cruzando el cielo.
 - **Clima y escenarios** que aparecen solos:
   - **Amanecer** con rayos de sol que salen de detrás de los edificios y más corredores en el paseo.
   - **Neblina matinal** algunas madrugadas, más espesa sobre el agua y los edificios lejanos; se
@@ -94,7 +97,7 @@ Medido en una laptop con i5-8300H a 1920×1080 (proceso `plasmashell` completo, 
   navegador.
 - `package/contents/ui/main.qml`: el fondo de Plasma. Apila las capas (cielo, nubes, ciudad,
   ambiente a 4 fps, vida a 12 fps, primer plano) y las escala a pantalla completa.
-- `preview.html`: vista previa en el navegador. Parámetros: `?scene=beach` (o `mountain`), `&hour=18.5`, `&rain=0.8`, `&live=1`
+- `preview.html`: vista previa en el navegador. Parámetros: `?scene=beach` (o `mountain`, `village`), `&hour=18.5`, `&rain=0.8`, `&live=1`
   (animada), `&seed=7`, `&weather=` para fijar un escenario (`clear`, `rain`, `storm`, `snow`,
   `fog`, `rainbow`, `fireworks`).
 - `catalog.html`: hoja con todos los estilos de edificio, de día y de noche.

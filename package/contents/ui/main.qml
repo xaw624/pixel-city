@@ -13,7 +13,7 @@ WallpaperItem {
     readonly property int lh: Math.max(180, Math.min(720, configuration.Lines || 270))
     readonly property int lw: height > 0 ? Math.ceil(width / height * lh) : 0
     readonly property int fps: 12
-    // Paisaje elegido en los ajustes: "city", "beach" o "mountain".
+    // Paisaje elegido en los ajustes: "city", "beach", "mountain" o "village".
     readonly property string sceneName: configuration.Scene || "city"
 
     // Pausa la animación cuando una ventana maximizada o a pantalla completa tapa el escritorio.
