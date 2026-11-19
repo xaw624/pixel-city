@@ -1383,15 +1383,19 @@ function step(w, dt, hour, P) {
         if (pl.x < -10 || pl.x > W + 10) w.planes.splice(i, 1);
     }
 
-    // Dirigible con reloj: cruza despacio y vuelve a salir al rato.
+    // Reloj volador: el dirigible o, de día, una avioneta con cartel. Cruza y vuelve a salir al rato.
     if (w.blimp) {
-        w.blimp.x += w.blimp.dir * w.blimp.speed * dt;
-        if (w.blimp.x < -24 || w.blimp.x > W + 24) { w.blimp = null; T.blimp = 8 + R() * 12; }
+        var zb = w.blimp, zm = zb.kind === "banner" ? 6 + BANNER_ROPE + BANNER_W + 2 : 24;
+        zb.x += zb.dir * zb.speed * dt;
+        if (zb.dir > 0 ? zb.x > W + zm : zb.x < -zm) { w.blimp = null; T.blimp = 8 + R() * 12; }
     } else {
         T.blimp -= dt;
         if (T.blimp <= 0) {
             var zd = R() < 0.5 ? 1 : -1;
-            w.blimp = { x: zd > 0 ? -22 : W + 22, y: 16 + R() * 20, dir: zd, speed: 4.5 + R() * 1.5 };
+            if (hour > 7.5 && hour < 18 && R() < 0.5)
+                w.blimp = { kind: "banner", x: zd > 0 ? -8 : W + 8, y: 8 + R() * 22, dir: zd, speed: 9 + R() * 3 };
+            else
+                w.blimp = { x: zd > 0 ? -22 : W + 22, y: 16 + R() * 20, dir: zd, speed: 4.5 + R() * 1.5 };
         }
     }
 
@@ -1693,7 +1697,7 @@ function drawAmbient(ctx, w, P, t) {
     }
 
     // El dirigible va delante de los edificios, sus luces LED y antenas.
-    if (w.blimp) drawBlimp(ctx, w.blimp, P, t);
+    if (w.blimp && !w.blimp.kind) drawBlimp(ctx, w.blimp, P, t);
 
     // Jirones de neblina que se arrastran despacio entre los edificios y sobre el agua.
     if (P.fog > 0.05) {
@@ -1801,6 +1805,9 @@ function drawLife(ctx, w, P, t) {
             rect(ctx, pl.x, pl.y - 1, 1, 1, css(mix(P.cl, [90, 90, 110], 0.5)));
         }
     }
+
+    // La avioneta con cartel va aquí y no en el ambiente: es rápida y a 4 fps daría saltos.
+    if (w.blimp && w.blimp.kind === "banner") drawBannerPlane(ctx, w.blimp, P, t);
 
     // Bandadas.
     for (i = 0; i < w.flocks.length; i++) {
@@ -2153,6 +2160,69 @@ function drawBillboard(ctx, bb, c, P, t) {
 var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "111001111001111", "101101111001001",
               "111100111001111", "111100111101111", "111001001001001", "111101111101111", "111101111001111"];
 
+// Pixeles [x, y] de la hora "HH:MM" con dígitos de 3×5 (17×5 en total); los dos puntos parpadean.
+function clockDots(t) {
+    var now = new Date(t * 1000), hh = now.getHours(), mm = now.getMinutes();
+    var digits = [Math.floor(hh / 10), hh % 10, -1, Math.floor(mm / 10), mm % 10], out = [], cx = 0;
+    for (var i = 0; i < digits.length; i++) {
+        if (digits[i] < 0) {
+            if (Math.floor(t) % 2 === 0) out.push([cx, 1], [cx, 3]);
+            cx += 2;
+            continue;
+        }
+        var bits = DIGITS[digits[i]];
+        for (var k = 0; k < 15; k++) if (bits[k] === "1") out.push([cx + k % 3, Math.floor(k / 3)]);
+        cx += 4;
+    }
+    return out;
+}
+
+// Avioneta de ala alta de 12×5 (mira a la derecha); la hélice se dibuja aparte.
+// t cola, w ala, b fuselaje, s panza, g ventanas, k ruedas.
+var BANNER_PLANE = ["tt..........", "ttt...wwww..", "tbbbbbbbggb.", ".ssbbbbbbbbb", "......k..k.."];
+var BANNER_PLANE_PAL = { t: [200, 56, 60], w: [200, 56, 60], b: [236, 236, 240], s: [176, 178, 190], g: [96, 136, 180], k: [40, 40, 48] };
+var BANNER_W = 25, BANNER_H = 9, BANNER_ROPE = 6;
+
+// Avioneta que remolca un cartel de tela con la hora; el cartel ondea más hacia su extremo libre.
+function drawBannerPlane(ctx, b, P, t) {
+    var d = b.dir, y = Math.round(b.y + Math.sin(t * 0.9) * 1.2), x = Math.round(b.x) - 6;
+    var col = function (c) { return css(lit(c, P)); };
+    sprite(ctx, BANNER_PLANE, x, y, d < 0, BANNER_PLANE_PAL, col);
+    // Hélice: el cubo siempre y las puntas alternadas para que parezca que gira.
+    var px = d > 0 ? x + 12 : x - 1, f = Math.floor(t * 12) % 2;
+    ctx.globalAlpha = 0.7;
+    rect(ctx, px, y + 2, 1, 2, col([120, 120, 132]));
+    rect(ctx, px, f ? y + 1 : y + 4, 1, 1, col([90, 90, 100]));
+    ctx.globalAlpha = 1;
+    if (P.night > 0.4) {
+        rect(ctx, d > 0 ? x + 8 : x + 3, y + 1, 1, 1, Math.floor(t * 1.5) % 2 === 0 ? "#ff6060" : "#60ff80");
+        if (Math.floor(t * 1.2) % 3 === 0) rect(ctx, d > 0 ? x : x + 11, y, 1, 1, "#ffffff");
+    }
+    // Cuerda con una pequeña comba, de la cola al palo del cartel.
+    var tail = d > 0 ? x - 1 : x + 12, rope = col([110, 100, 90]);
+    for (var r = 0; r < BANNER_ROPE; r++) rect(ctx, tail - d * r, y + 2 + (r > 1 && r < BANNER_ROPE - 1 ? 1 : 0), 1, 1, rope);
+    // Cartel: columna c contada desde el palo; la ondulación crece hacia el extremo libre.
+    var pole = tail - d * BANNER_ROPE, top = y - 2;
+    var cloth = lit([246, 240, 224], P), fold = lit([212, 202, 182], P), ink = col([204, 40, 50]);
+    // Ondas de un solo pixel para que la hora se siga leyendo; la punta libre aletea más.
+    var wave = function (c) {
+        var o = c > 5 && Math.sin(t * 4 - c * 0.3) > 0.2 ? 1 : 0;
+        return c > BANNER_W - 3 ? o + Math.round(Math.sin(t * 9 + c * 1.7)) : o;
+    };
+    var dots = clockDots(t), grid = {};
+    for (var i = 0; i < dots.length; i++) grid[(dots[i][0] + 4) + "," + (dots[i][1] + 2)] = 1;
+    rect(ctx, pole, top - 1, 1, BANNER_H + 2, col([96, 80, 64]));
+    for (var c = 1; c <= BANNER_W; c++) {
+        var sx = pole - d * c, o = wave(c), k = d > 0 ? BANNER_W - c : c - 1;
+        var h = c === BANNER_W ? BANNER_H - 2 : BANNER_H, y0 = top + o + (c === BANNER_W ? 1 : 0);
+        rect(ctx, sx, y0, 1, h, css(o < wave(c - 1) ? fold : cloth));
+        rect(ctx, sx, y0, 1, 1, ink);
+        rect(ctx, sx, y0 + h - 1, 1, 1, ink);
+        ctx.fillStyle = ink;
+        for (var rr = 2; rr < 7; rr++) if (grid[k + "," + rr]) ctx.fillRect(sx, y0 + rr, 1, 1);
+    }
+}
+
 function drawBlimp(ctx, b, P, t) {
     var d = b.dir, x = Math.round(b.x), y = Math.round(b.y + Math.sin(t * 0.4) * 1.5);
     var night = P.night > 0.4;
@@ -2174,26 +2244,15 @@ function drawBlimp(ctx, b, P, t) {
     // Pantalla con la hora.
     rect(ctx, x - 11, y - 4, 23, 8, "#2a2c3a");
     rect(ctx, x - 10, y - 3, 21, 6, "#12141c");
-    var now = new Date(t * 1000);
-    var hh = now.getHours(), mm = now.getMinutes();
-    var digits = [Math.floor(hh / 10), hh % 10, -1, Math.floor(mm / 10), mm % 10];
-    var lc = "#7dffa0", cx = x - 8;
+    var lc = "#7dffa0";
     if (night) {
         ctx.globalAlpha = 0.25;
         rect(ctx, x - 10, y - 3, 21, 6, lc);
         ctx.globalAlpha = 1;
     }
     ctx.fillStyle = lc;
-    for (var i = 0; i < digits.length; i++) {
-        if (digits[i] < 0) {
-            if (Math.floor(t) % 2 === 0) { ctx.fillRect(cx, y - 2 + 1, 1, 1); ctx.fillRect(cx, y - 2 + 3, 1, 1); }
-            cx += 2;
-            continue;
-        }
-        var bits = DIGITS[digits[i]];
-        for (var k = 0; k < 15; k++) if (bits[k] === "1") ctx.fillRect(cx + k % 3, y - 2 + Math.floor(k / 3), 1, 1);
-        cx += 4;
-    }
+    var dots = clockDots(t);
+    for (var i = 0; i < dots.length; i++) ctx.fillRect(x - 8 + dots[i][0], y - 2 + dots[i][1], 1, 1);
     if (night) {
         if (Math.floor(t * 1.3) % 2 === 0) rect(ctx, bx(-22, 1), y, 1, 1, "#ff5050");
         rect(ctx, bx(20, 1), y, 1, 1, "#ffffff");
