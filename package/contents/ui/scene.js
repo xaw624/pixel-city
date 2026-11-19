@@ -2166,7 +2166,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "duster", "skywrite", "balloon", "heli", "holo", "swarm"];
+var FLYER_ORDER = ["blimp", "banner", "duster", "skywrite", "balloon", "heli", "holo", "swarm", "sleigh"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2218,6 +2218,17 @@ var FLYERS = {
         make: makeSwarm,
         step: stepSwarm,
         draw: drawSwarm
+    },
+    sleigh: {
+        // Pueblo, del 1 de diciembre al Día de Reyes.
+        ok: function (w) {
+            var now = new Date();
+            return w.scene === "village" && (now.getMonth() === 11 || (now.getMonth() === 0 && now.getDate() <= 6));
+        },
+        make: function (w, d, R) {
+            return { x: d > 0 ? -2 : w.W + 2, y: 10 + R() * 16, dir: d, speed: 12 + R() * 2, m: 31 + BANNER_ROPE + BANNER_W + 2 };
+        },
+        draw: drawSleigh
     }
 };
 
@@ -2311,6 +2322,39 @@ function drawDuster(ctx, f, P, t, w) {
     rect(ctx, px, fr ? y + 1 : y + 4, 1, 1, col([90, 90, 100]));
     ctx.globalAlpha = 1;
     drawTowedBanner(ctx, w, d > 0 ? x - 1 : x + 12, y + 2, d, P, t);
+}
+
+// Trineo con dos renos (8×6, miran a la derecha) que remolca el cartel con la hora.
+// a astas, h cabeza, n nariz, b cuerpo, t cola, l patas; trineo: c gorro y abrigo, f cara, w barba,
+// g costal, r trineo, y patines.
+var REINDEER = [".....a.a", "......hh", "t....bhn", ".bbbbbb.", ".bbbbb.."];
+var REINDEER_LEGS = [".l...l..", "l..l.l.l"];
+var REINDEER_PAL = { a: [150, 110, 70], h: [150, 100, 64], n: [70, 40, 40], b: [140, 94, 60], t: [232, 222, 204], l: [100, 70, 50] };
+var SLEIGH = ["......cc..", "......ff..", "gg....cw..", "rrrrrrrrr.", ".rrrrrrrry", "yyyyyyyyy."];
+var SLEIGH_PAL = { c: [200, 40, 44], f: [240, 200, 170], w: [244, 244, 248], g: [60, 130, 70], r: [180, 30, 40], y: [230, 190, 70] };
+function drawSleigh(ctx, f, P, t, w) {
+    var d = f.dir, base = Math.round(f.x), y = Math.round(f.y + Math.sin(t * 1.4) * 1.5);
+    var col = function (c) { return css(lit(c, P)); };
+    // Pieza de largo len a off pixeles del frente de la caravana.
+    function at(off, len) { return d > 0 ? base - off - len : base + off + 1; }
+    var harness = col([90, 60, 40]);
+    rect(ctx, at(17, 2), y + 3, 2, 1, harness);
+    rect(ctx, at(8, 1), y + 3, 1, 1, harness);
+    sprite(ctx, SLEIGH, at(19, 10), y, d < 0, SLEIGH_PAL, col);
+    for (var k = 0; k < 2; k++) {
+        var off = k ? 0 : 9, rx = at(off, 8), ry = y + (Math.floor(t * 6 + k) % 2 ? 0 : -1);
+        sprite(ctx, REINDEER, rx, ry, d < 0, REINDEER_PAL, col);
+        sprite(ctx, [REINDEER_LEGS[Math.floor(t * 6 + k) % 2]], rx, ry + 5, d < 0, REINDEER_PAL, col);
+        // De noche el reno de adelante lleva la nariz roja encendida.
+        if (k && P.night > 0.4) {
+            var nx = d > 0 ? rx + 7 : rx;
+            ctx.globalAlpha = 0.3;
+            rect(ctx, nx - 1, ry + 1, 3, 3, "#ff3030");
+            ctx.globalAlpha = 1;
+            rect(ctx, nx, ry + 2, 1, 1, Math.floor(t * 2) % 2 ? "#ff4040" : "#ff8080");
+        }
+    }
+    drawTowedBanner(ctx, w, at(29, 1), y + 3, d, P, t);
 }
 
 // En la playa el cartel alterna la hora con un anuncio de helados (cono, paleta y cono).
