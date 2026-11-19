@@ -30,6 +30,8 @@ if (q.has("flyer")) {
   world.flyer.kind = fk;
   world.flyerIdx = FLYER_ORDER.indexOf(fk);
 }
+// jets=1 saca los jets de la hora en punto.
+if (q.has("jets")) spawnJets(world, Math.random);
 
 function layer(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 var sky = layer(W, H), clouds = layer(W * 2, H), city = layer(W, H), ambient = layer(W, H), life = layer(W, H), front = layer(W, H);

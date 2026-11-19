@@ -288,6 +288,8 @@ function initLife(w, R) {
     // Reloj volador (ver FLYERS): empieza el dirigible, a media pantalla.
     w.flyer = { kind: "blimp", x: Math.round(W * (0.2 + R() * 0.3)), y: ri(R, 16, 34), dir: 1, speed: 5, m: 24 };
     w.flyerIdx = 0;
+    w.jets = null;             // jets de la hora en punto (ver stepJets)
+    w.jetHour = -1;
     w.timers = { flyer: 60, person: 0, flock: 6, gull: 12, car: 0, boat: 15, plane: 25, meteor: 150, pigeon: 5, weather: 900 + R() * 1200,
         fog: 20, bolt: 8, show: 40, rocket: 0 };
     w.rain = 0;
@@ -1399,6 +1401,7 @@ function step(w, dt, hour, P) {
         T.flyer -= dt;
         if (T.flyer <= 0) nextFlyer(w, hour, R);
     }
+    stepJets(w, dt, hour, R);
 
     // Estrellas fugaces.
     T.meteor -= dt;
@@ -1809,6 +1812,7 @@ function drawLife(ctx, w, P, t) {
 
     // Los relojes voladores rápidos van aquí y no en el ambiente: a 4 fps darían saltos.
     if (w.flyer && !FLYERS[w.flyer.kind].slow) FLYERS[w.flyer.kind].draw(ctx, w.flyer, P, t, w);
+    if (w.jets) drawJets(ctx, w, P);
 
     // Bandadas.
     for (i = 0; i < w.flocks.length; i++) {
@@ -2242,6 +2246,57 @@ function nextFlyer(w, hour, R) {
         w.flyer = FLYERS[kind].make(w, d, R);
         w.flyer.kind = kind;
         return;
+    }
+}
+
+// Jets de la hora en punto: de día y con cielo despejado, cuatro jets en rombo cruzan rápido
+// dejando estelas roja, blanca y verde. Van aparte de los turnos de FLYERS.
+var JET = ["t......", "tbbbbbb", ".ww...."];
+var JET_PAL = { t: [40, 80, 180], b: [222, 226, 236], w: [170, 176, 194] };
+var JET_FORM = [[0, 0, [255, 255, 255]], [-8, -4, [224, 64, 64]], [-8, 4, [56, 168, 96]], [-16, 0, [255, 255, 255]]];
+var JET_LIFE = 8;
+function spawnJets(w, R) {
+    var d = R() < 0.5 ? 1 : -1;
+    w.jets = { dir: d, x: d > 0 ? -4 : w.W + 4, y: Math.round(12 + R() * 14), trail: [] };
+}
+function stepJets(w, dt, hour, R) {
+    var now = new Date();
+    if (now.getMinutes() === 0 && w.jetHour !== now.getHours()) {
+        w.jetHour = now.getHours();
+        if (!w.jets && hour > 8 && hour < 19 && w.rain < 0.05 && w.fog < 0.3) spawnJets(w, R);
+    }
+    var J = w.jets;
+    if (!J) return;
+    J.x += J.dir * 45 * dt;
+    var flying = J.dir > 0 ? J.x < w.W + 30 : J.x > -30;
+    // Un tramo de estela por paso, tan largo como lo que avanzó el jet, para que no quede punteada.
+    if (flying) {
+        var len = Math.ceil(45 * dt) + 1;
+        for (var i = 0; i < JET_FORM.length; i++)
+            J.trail.push({ x: J.x + J.dir * (JET_FORM[i][0] - 1), y: J.y + JET_FORM[i][1] + 1, c: JET_FORM[i][2], age: 0, len: len });
+    }
+    for (i = J.trail.length - 1; i >= 0; i--) {
+        var p = J.trail[i];
+        p.age += dt;
+        p.y += 0.3 * dt;
+        if (p.age > JET_LIFE) J.trail.splice(i, 1);
+    }
+    if (!flying && !J.trail.length) w.jets = null;
+}
+function drawJets(ctx, w, P) {
+    var J = w.jets, i;
+    // Cada tramo engorda y se desvanece con la edad.
+    for (i = 0; i < J.trail.length; i++) {
+        var p = J.trail[i], h = p.age < 1 ? 1 : p.age < 4 ? 2 : 3;
+        ctx.globalAlpha = 0.85 * (1 - p.age / JET_LIFE);
+        var c = css(mix(lit(p.c, P), P.cl, 0.15)), x = Math.round(p.x) - (J.dir > 0 ? p.len - 1 : 0);
+        for (var r = 0; r < h; r++) skyDot(ctx, w, x, Math.round(p.y) - (h > 2 ? 1 : 0) + r, c, p.len);
+    }
+    ctx.globalAlpha = 1;
+    var col = function (c) { return css(lit(c, P)); };
+    for (i = 0; i < JET_FORM.length; i++) {
+        var jx = Math.round(J.x + J.dir * JET_FORM[i][0]), jy = J.y + JET_FORM[i][1];
+        sprite(ctx, JET, J.dir > 0 ? jx - 6 : jx, jy, J.dir < 0, JET_PAL, col);
     }
 }
 
