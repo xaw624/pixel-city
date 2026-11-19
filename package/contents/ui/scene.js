@@ -2166,7 +2166,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon", "heli", "holo"];
+var FLYER_ORDER = ["blimp", "banner", "skywrite", "balloon", "heli", "holo", "swarm"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2203,6 +2203,12 @@ var FLYERS = {
         ok: function (w) { return w.scene === "cyber"; },
         make: function (w, d, R) { return { x: d > 0 ? -12 : w.W + 12, y: 14 + R() * 20, dir: d, speed: 6 + R() * 2, m: 14, id: R() * 1000 }; },
         draw: drawHolo
+    },
+    swarm: {
+        ok: function (w, h) { return (h >= 20.5 || h < 4.5) && w.rain < 0.05 && w.fog < 0.3; },
+        make: makeSwarm,
+        step: stepSwarm,
+        draw: drawSwarm
     }
 };
 
@@ -2470,6 +2476,58 @@ function drawHolo(ctx, f, P, t, w) {
     for (var i = 0; i < dots.length; i++) {
         var dy = dots[i][1] + 2;
         ctx.fillRect(hx + 3 + dots[i][0] + (dy === glitchRow ? gx : 0), hy + dy, 1, 1);
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Espectáculo de drones de noche: llegan en nube, forman la hora (cada punto es un dron), la
+// sostienen cambiando de color y se van por el otro lado. Si cambia el minuto, se reacomodan.
+var SWARM_GAP = 3, SWARM_IN = 8, SWARM_OUT = 40;
+function newDrone(w, f, R) {
+    return { x: f.dir > 0 ? -4 - R() * 40 : w.W + 4 + R() * 40, y: f.y0 + R() * 24, ox: (R() - 0.5) * 60, oy: (R() - 0.5) * 18, ph: R(), dot: null };
+}
+function makeSwarm(w, d, R) {
+    var f = { dir: d, age: 0, drones: [], x0: Math.round(w.W / 2 - 25 + (R() - 0.5) * w.W * 0.4), y0: Math.round(10 + R() * 10), mm: -1 };
+    for (var i = 0; i < 44; i++) f.drones.push(newDrone(w, f, R));
+    return f;
+}
+function stepSwarm(f, w, dt, R) {
+    f.age += dt;
+    var i, dr, now = new Date(), mm = now.getHours() * 60 + now.getMinutes();
+    if (f.age >= SWARM_IN && f.age < SWARM_OUT && mm !== f.mm) {
+        f.mm = mm;
+        var dots = clockDots(now.getTime() / 1000, true);
+        while (f.drones.length < dots.length) f.drones.push(newDrone(w, f, R));
+        for (i = 0; i < f.drones.length; i++) f.drones[i].dot = i < dots.length ? dots[i] : null;
+    }
+    var gone = true, cx = f.x0 + 25, cy = f.y0 + 6;
+    for (i = 0; i < f.drones.length; i++) {
+        dr = f.drones[i];
+        var tx, ty;
+        if (f.age < SWARM_IN) { tx = cx + dr.ox; ty = cy + dr.oy; }
+        else if (f.age < SWARM_OUT && dr.dot) { tx = f.x0 + dr.dot[0] * SWARM_GAP; ty = f.y0 + dr.dot[1] * SWARM_GAP; }
+        else { tx = f.dir > 0 ? w.W + 10 + dr.ph * 30 : -10 - dr.ph * 30; ty = f.y0 - 8 + dr.oy * 0.6; }
+        var dx = tx - dr.x, dy = ty - dr.y, dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 0.01) {
+            var mv = Math.min(dist, Math.min(dist * 1.6, 45) * dt);
+            dr.x += dx / dist * mv;
+            dr.y += dy / dist * mv;
+        }
+        if (dr.x > -4 && dr.x < w.W + 4) gone = false;
+    }
+    return f.age > SWARM_OUT && gone;
+}
+function drawSwarm(ctx, f, P, t, w) {
+    for (var i = 0; i < f.drones.length; i++) {
+        var dr = f.drones[i], x = Math.round(dr.x), y = Math.round(dr.y);
+        var lit = f.age >= SWARM_IN && f.age < SWARM_OUT + 2 && dr.dot;
+        var c = lit ? css(mix(hue([255, 90, 120], t * 0.08 + dr.dot[0] * 0.025), [255, 255, 255], 0.3)) : "#dce8ff";
+        ctx.globalAlpha = 0.22;
+        skyDot(ctx, w, x - 1, y, c, 3);
+        skyDot(ctx, w, x, y - 1, c);
+        skyDot(ctx, w, x, y + 1, c);
+        ctx.globalAlpha = 0.75 + 0.25 * Math.sin(t * 3 + dr.ph * 6);
+        skyDot(ctx, w, x, y, c);
     }
     ctx.globalAlpha = 1;
 }
