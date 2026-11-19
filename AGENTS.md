@@ -48,12 +48,13 @@ la configuración del fondo anterior se conserva.
   vida, primer plano), los escala sin suavizado y maneja temporizadores y la pausa.
 - `package/contents/ui/scene.js`: todo el motor (generación, paleta por hora, simulación, dibujo).
   Solo usa la API de Canvas 2D, así que corre igual en QML y en el navegador. Escenas (ajuste
-  "Escenario" = `configuration.Scene`): `city` es la base; las demás (`beach`, `mountain`, `village`, `farm`) están en
+  "Escenario" = `configuration.Scene`): `city` es la base; las demás (`beach`, `mountain`, `village`, `farm`, `cyber`) están en
   la tabla `SCENES` al final con sus funciones `create`, `draw`, `front` y opcionales `ambient`,
   `step`, `life` y `tint`. Comparten cielo, clima y vida. Para agregar una: escribe esas funciones,
   regístrala en `SCENES` y en la lista `scenes` de `config.qml`. Animales que caminan entre la gente
   van en `w.critters` con su dibujo en `CRITTERS`. Banderas útiles: `w.noSnow`, `w.alwaysSnow`,
-  `w.minSnow`, `w.noGulls`, `w.noBoats`, `w.noWater`, `w.lanes`, `w.span`.
+  `w.minSnow`, `w.noGulls`, `w.noBoats`, `w.noWater`, `w.noStars`, `w.crowd`, `w.lanes`, `w.span`.
+  Vehículos con `kind` (en `w.cars`) se dibujan con la función de `VEHICLES`.
   Sigue en un solo archivo porque los JS de QML no comparten globales entre archivos.
 - `preview.html`, `catalog.html`, `anuncios.html`: arneses para probar en el navegador.
 
@@ -67,7 +68,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 ```
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
-(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
+(segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`, `cyber`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
 `rainbow`, `fireworks`; llama a `setWeather` y congela el clima).
 
 ## Trampas conocidas
@@ -104,6 +105,8 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
 - Campo: los colores de las parcelas dependen del mes (`fieldCols`); hay menos gente (`w.crowd`) y
   los vehículos del camino son `w.cars` con `kind` (tractor, camioneta) dibujados en `drawFarmVehicle`.
   Las aspas del molino giran en la capa de vida (`drawMillSails`), no en la ambiental.
+- Ciberpunk: el smog se aplica en `tintCyber` (gancho `tint` de la paleta); empieza lloviendo y
+  `w.rainChance` es alto. Los signos de los letreros son inventados (`makeGlyphs`), no texto real.
 - Montaña: las canoas van en la parte lejana del lago (`w.yW + 1..5`) para no pasar delante de los
   pinos de la orilla ni de la cabaña.
 

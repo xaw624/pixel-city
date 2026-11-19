@@ -32,6 +32,10 @@ completamente por código (sin videos ni imágenes).
     en verano, ocres en otoño), granero rojo con silo, casa con ropa tendida, molino de aspas que
     giran, aerogeneradores, tractor y camioneta, vacas que se echan de noche, gallinas,
     espantapájaros y girasoles en verano.
+  - **Calle ciberpunk**: torres con miles de ventanas de colores, letreros de neón que parpadean,
+    holograma, reflectores, tren elevado, autos voladores y autos que flotan sobre el asfalto
+    mojado, vapor de las alcantarillas, puesto de fideos y gente con paraguas de neón. Llueve casi
+    siempre.
 - **Clima y escenarios** que aparecen solos:
   - **Amanecer** con rayos de sol que salen de detrás de los edificios y más corredores en el paseo.
   - **Neblina matinal** algunas madrugadas, más espesa sobre el agua y los edificios lejanos; se
@@ -101,7 +105,7 @@ Medido en una laptop con i5-8300H a 1920×1080 (proceso `plasmashell` completo, 
   navegador.
 - `package/contents/ui/main.qml`: el fondo de Plasma. Apila las capas (cielo, nubes, ciudad,
   ambiente a 4 fps, vida a 12 fps, primer plano) y las escala a pantalla completa.
-- `preview.html`: vista previa en el navegador. Parámetros: `?scene=beach` (o `mountain`, `village`, `farm`), `&hour=18.5`, `&rain=0.8`, `&live=1`
+- `preview.html`: vista previa en el navegador. Parámetros: `?scene=beach` (o `mountain`, `village`, `farm`, `cyber`), `&hour=18.5`, `&rain=0.8`, `&live=1`
   (animada), `&seed=7`, `&weather=` para fijar un escenario (`clear`, `rain`, `storm`, `snow`,
   `fog`, `rainbow`, `fireworks`).
 - `catalog.html`: hoja con todos los estilos de edificio, de día y de noche.

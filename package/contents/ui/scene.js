@@ -593,7 +593,7 @@ function drawSky(ctx, w, P) {
     }
     rect(ctx, 0, n * bh, W, w.H - n * bh, css(P.hor));
 
-    if (P.night > 0.15) {
+    if (P.night > 0.15 && !w.noStars) {
         for (i = 0; i < w.stars.length; i++) {
             var s = w.stars[i];
             ctx.globalAlpha = clamp((P.night - 0.15) * 1.3, 0, 1) * s.b * (1 - P.rain);
@@ -2202,7 +2202,7 @@ function drawBlimp(ctx, b, P, t) {
 
 // Auto de 10×4 o autobús de 16×5, apoyado en la fila car.y.
 function drawCar(ctx, car, P) {
-    if (car.kind) return drawFarmVehicle(ctx, car, P);
+    if (car.kind) return VEHICLES[car.kind](ctx, car, P);
     var d = car.dir, L = car.bus ? 16 : 10, x0 = Math.round(car.x) - Math.floor(L / 2), yb = car.y;
     var c = lit(car.col, P), body = css(c), hi = css(mix(c, [255, 255, 255], 0.3)), dark = css(mul(c, 0.7));
     var night = P.night > 0.4;
@@ -4421,12 +4421,7 @@ function stepFarm(w, dt, hour, P) {
                 col: tr ? rgb(pick(R, ["#3a8a3a", "#c83a2a"])) : rgb(pick(R, ["#4a6ac0", "#c8c8d0", "#a04030", "#3a3a44"])), skin: rgb(pick(R, SKINS)) });
         }
     }
-    for (i = w.cars.length - 1; i >= 0; i--) {
-        var car = w.cars[i];
-        car.x += car.dir * car.speed * dt;
-        car.ph = (car.ph || 0) + dt * car.speed;
-        if (car.x < -30 || car.x > W + 30) w.cars.splice(i, 1);
-    }
+    for (i = 0; i < w.cars.length; i++) w.cars[i].ph = (w.cars[i].ph || 0) + dt * w.cars[i].speed;   // step los mueve
 }
 
 function drawFarmLife(ctx, w, P, t) { drawMillSails(ctx, w, P, t); }
@@ -4504,6 +4499,479 @@ function drawHen(ctx, c, P, t) {
     px(1 + f, 4, 1, 1, beak); px(3 - f, 4, 1, 1, beak);
 }
 
+// ---------- escena: calle ciberpunk ----------
+// Calle lluviosa de una megaciudad: torres con miles de ventanas de colores, letreros de neón con
+// signos inventados, un holograma, reflectores, tren elevado, autos voladores, autos que flotan sobre
+// el asfalto mojado, vapor de las alcantarillas y gente con paraguas de neón. Llueve casi siempre y
+// el smog tiñe el cielo; nunca nieva.
+
+var CYBER_WIN = [[90, 230, 255], [255, 90, 200], [255, 200, 110], [170, 120, 255], [120, 255, 190]];
+
+// Signos inventados de 3×4 (bits por fila), para los letreros.
+function makeGlyphs(R, n) {
+    var g = [];
+    for (var i = 0; i < n; i++) {
+        var rows = [];
+        for (var r = 0; r < 4; r++) rows.push(ri(R, 1, 7));
+        rows[ri(R, 0, 3)] = 7;
+        g.push(rows);
+    }
+    return g;
+}
+
+function createCyber(W, H, seed, opts) {
+    var R = rng(seed || 7), i, x;
+    var w = { W: W, H: H, opts: opts || {}, scene: "cyber", noGulls: true, noBoats: true, noWater: true, noSnow: true, noStars: true, crowd: 18 };
+    w.yB = Math.round(H * 0.72);       // pie de los edificios
+    w.yW = w.yB;
+    w.base = w.yB;
+    w.axis = w.yB;
+    w.yP = w.yB + 21;                  // acera de enfrente
+    w.ground = w.yP;
+    w.yT = w.yB - 52;                  // vía del tren elevado
+    w.windows = []; w.antennas = []; w.signs = []; w.tvs = []; w.leds = []; w.screens = [];
+    w.ads = []; w.bigAds = []; w.refl = []; w.layers = [[], [], []];
+    w.lamps = []; w.benches = []; w.trees = []; w.hedge = [];
+
+    // Torres lejanas (altísimas), torres medias con letreros y edificios bajos con tiendas.
+    w.towers = [[], [], []];
+    var spec = [[16, 44, 0.42, 0.8, -2, 4], [24, 56, 0.28, 0.56, 2, 14], [22, 40, 0, 0, 0, 3]];
+    for (var d = 0; d < 3; d++) {
+        for (x = -ri(R, 0, 20); x < W + 4; ) {
+            var tw = ri(R, spec[d][0], spec[d][1]);
+            var th = d < 2 ? ri(R, Math.round(H * spec[d][2]), Math.round(H * spec[d][3])) : ri(R, 26, 46);
+            var tb = { x: x, w: tw, h: th, seed: ri(R, 0, 99999), col: d === 2 ? rgb(pick(R, ["#4a4058", "#3a4a5a", "#5a4a4a", "#46465a"])) : [44 + d * 10, 40 + d * 8, 70 + d * 6],
+                spire: d < 2 && R() < 0.35 ? ri(R, 6, 18) : 0, step: d < 2 && R() < 0.4 ? ri(R, 4, Math.round(tw / 3)) : 0, lit: R() };
+            if (d === 1 && R() < 0.7) {
+                var sh = ri(R, 4, 7);
+                tb.vsign = { x: R() < 0.5 ? x - 3 : x + tw - 2, y: w.yB - th + ri(R, 8, Math.max(10, th - sh * 5 - 30)), g: makeGlyphs(R, sh), c: ri(R, 0, NEON.length - 1), id: ri(R, 0, 9999) };
+            }
+            if (d === 2) {
+                tb.shop = { c: ri(R, 0, NEON.length - 1), g: makeGlyphs(R, ri(R, 3, Math.max(3, Math.floor((tw - 4) / 4)))), id: ri(R, 0, 9999), awning: R() < 0.5,
+                    warm: R() < 0.5, ac: R() < 0.7 ? ri(R, 2, tw - 8) : -1, pipe: R() < 0.5 };
+            }
+            w.towers[d].push(tb);
+            x += tw + ri(R, spec[d][4], spec[d][5]);
+        }
+    }
+    // Holograma sobre la torre media más ancha.
+    var big = w.towers[1][0];
+    for (i = 1; i < w.towers[1].length; i++) if (w.towers[1][i].w > big.w && w.towers[1][i].x > 10 && w.towers[1][i].x < W - 50) big = w.towers[1][i];
+    w.holo = { x: big.x + Math.round(big.w / 2), y: w.yB - big.h + Math.round(Math.min(big.h * 0.3, 40)) + 14 };
+    // Reflectores en dos torres lejanas.
+    w.beams = [];
+    for (i = 0; i < 2; i++) {
+        var ft = w.towers[0][ri(R, 0, w.towers[0].length - 1)];
+        w.beams.push({ x: ft.x + Math.round(ft.w / 2), y: w.yB - ft.h - ft.spire, ph: R() * 6, sp: 0.25 + R() * 0.2 });
+    }
+    // Pilares del tren, máquinas expendedoras, alcantarillas con vapor y un puesto de fideos.
+    w.pillars = [];
+    for (x = ri(R, 20, 50); x < W; x += ri(R, 70, 110)) w.pillars.push(x);
+    w.vending = [];
+    for (i = 0; i < Math.max(2, Math.round(W / 160)); i++) w.vending.push({ x: ri(R, 6, W - 12), c: ri(R, 0, NEON.length - 1) });
+    w.vents = [];
+    for (i = 0; i < Math.max(2, Math.round(W / 180)); i++) w.vents.push({ x: ri(R, 10, W - 10), y: w.yB + ri(R, 10, 18) });
+    w.stand = { x: ri(R, Math.round(W * 0.2), Math.round(W * 0.8)), y: w.yP + 10 };
+    w.lanes = [w.yB + 5];
+    for (var y = w.yP + 7; y < H - 3; y += 7) w.lanes.push(y);
+
+    // Silueta contra el cielo.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(w.yB);
+    for (d = 0; d < 3; d++)
+        for (i = 0; i < w.towers[d].length; i++) {
+            var T = w.towers[d][i];
+            for (x = T.x; x < T.x + T.w; x++) if (x >= 0 && x < W) w.sky[x] = Math.min(w.sky[x], w.yB - T.h);
+            var sx = T.x + Math.round(T.w / 2);
+            if (T.spire && sx >= 0 && sx < W) w.sky[sx] = Math.min(w.sky[sx], w.yB - T.h - T.spire);
+        }
+
+    genSky(w, R);
+    initLife(w, R);
+    w.rainChance = 0.75;
+    w.rain = w.rainTarget = 0.7;       // empieza lloviendo
+    w.timers.weather = 300 + R() * 600;
+    w.fliers = [];
+    w.drones = [];
+    for (i = 0; i < 3; i++) w.drones.push({ x: ri(R, 20, W - 20), y: ri(R, 30, w.yT - 20), ph: R() * 6, sp: 4 + R() * 6 });
+    w.train = null;
+    w.timers.flier = 0;
+    w.timers.train = 8;
+    w.timers.hover = 0;
+    return w;
+}
+
+// Smog: gris de día; de noche el horizonte se tiñe del neón de la ciudad y no se ven estrellas.
+function tintCyber(P, w) {
+    var n = P.night;
+    P.top = mix(P.top, mix([90, 100, 116], [26, 18, 50], n), 0.4);
+    P.mid = mix(P.mid, mix([140, 146, 156], [92, 40, 112], n), 0.45);
+    P.hor = mix(P.hor, mix([176, 172, 166], [210, 84, 156], n), 0.5);
+    P.cl = mix(P.cl, mix([170, 172, 178], [126, 70, 136], n), 0.45);
+    P.cs = mix(P.cs, mix([112, 114, 124], [60, 30, 82], n), 0.45);
+}
+
+function drawCyber(ctx, w, P, t) {
+    var W = w.W, H = w.H, yB = w.yB, hour = P.hour, i, x, y, d;
+    ctx.clearRect(0, 0, W, H);
+    var night = P.night > 0.35, nk = clamp((P.night - 0.2) / 0.6, 0, 1);
+    for (d = 0; d < 3; d++) {
+        if (d === 2) drawTrack(ctx, w, P);
+        for (i = 0; i < w.towers[d].length; i++) drawCyberTower(ctx, w, w.towers[d][i], d, P, nk, hour);
+        if (P.fog > 0.02 || d < 2) {
+            // Smog entre capas (más con neblina).
+            var fh = Math.round(yB * 0.7), fa = (d === 0 ? 0.35 : (d === 1 ? 0.2 : 0)) + 0.3 * P.fog;
+            ctx.fillStyle = css(P.fogc);
+            for (var fy = 0; fy < fh; fy += 2) { var u = 1 - fy / fh; ctx.globalAlpha = fa * u * u; ctx.fillRect(0, yB - fy - 2, W, 2); }
+            ctx.globalAlpha = 1;
+        }
+    }
+    // Acera de atrás, calle y acera de enfrente, siempre mojadas.
+    var walk = lit([84, 82, 100], P), road = lit([40, 40, 52], P);
+    rect(ctx, 0, yB, W, 7, css(walk));
+    rect(ctx, 0, yB, W, 1, css(mix(walk, [255, 255, 255], 0.12)));
+    rect(ctx, 0, yB + 7, W, 14, css(road));
+    rect(ctx, 0, yB + 7, W, 1, css(mul(walk, 0.7)));
+    ctx.fillStyle = css(mix(road, [220, 220, 160], 0.35));
+    for (x = 0; x < W; x += 14) ctx.fillRect(x, yB + 14, 7, 1);
+    rect(ctx, 0, w.yP, W, H - w.yP, css(walk));
+    rect(ctx, 0, w.yP, W, 1, css(mix(walk, [255, 255, 255], 0.12)));
+    ctx.fillStyle = css(mul(walk, 0.88));
+    for (y = w.yP + 6; y < H; y += 6) ctx.fillRect(0, y, W, 1);
+    for (y = w.yP; y < H; y += 6) for (x = (y / 6 % 2) * 8; x < W; x += 16) ctx.fillRect(x, y, 1, 6);
+    // Reflejos del neón y de las vitrinas en el piso mojado: franjas que se cortan.
+    var wet = (0.2 + 0.35 * Math.max(P.rain, 0.3)) * (night ? 1 : 0.3);
+    for (i = 0; i < w.towers[2].length; i++) {
+        var T = w.towers[2][i], gw = T.shop.g.length * 4 + 1, sx0 = T.x + Math.round((T.w - gw) / 2);
+        for (y = yB + 1; y < yB + 26; y += 2) {
+            var fade = 1 - (y - yB) / 26;
+            if (hash2(T.seed, y) < 0.3) continue;
+            ctx.globalAlpha = wet * fade;
+            rect(ctx, sx0 + Math.round(Math.sin(y * 0.9 + T.seed) * 1.5), y, gw, 1, NEON[T.shop.c]);
+            if (y < yB + 8 && night) { ctx.globalAlpha = wet * fade * 0.5; rect(ctx, T.x + 3, y, T.w - 6, 1, T.shop.warm ? "#ffd696" : "#96e6ff"); }
+        }
+    }
+    ctx.globalAlpha = 1;
+    // Alcantarillas, expendedoras y puesto de fideos.
+    for (i = 0; i < w.vents.length; i++) { ell(ctx, w.vents[i].x, w.vents[i].y, 3, 1, css(lit([28, 28, 36], P))); }
+    for (i = 0; i < w.vending.length; i++) {
+        var V = w.vending[i], vc = rgb(NEON[V.c]);
+        rect(ctx, V.x, yB - 11, 7, 12, css(lit([60, 60, 74], P)));
+        rect(ctx, V.x + 1, yB - 10, 5, 6, css(night ? vc : mix(lit(vc, P), [90, 90, 100], 0.5)));
+        for (var k = 0; k < 3; k++) rect(ctx, V.x + 1 + k * 2, yB - 9, 1, 4, css(mix(lit([240, 240, 240], P), vc, 0.3)));
+        rect(ctx, V.x + 1, yB - 3, 5, 1, css(lit([20, 20, 26], P)));
+    }
+    drawNoodleStand(ctx, w.stand, P, night);
+}
+
+// Una torre (o edificio bajo con tienda si d = 2).
+function drawCyberTower(ctx, w, T, d, P, nk, hour) {
+    var yB = w.yB, x = T.x, top = yB - T.h, k, r;
+    var haze = [0.45, 0.22, 0][d];
+    var body = mix(lit(T.col, P), P.haze, haze), bodyC = css(body), bodyD = css(mul(body, 0.8)), bodyL = css(mix(body, [255, 255, 255], 0.08));
+    rect(ctx, x, top, T.w, T.h, bodyC);
+    rect(ctx, x + T.w - Math.max(2, Math.round(T.w * 0.2)), top, Math.max(2, Math.round(T.w * 0.2)), T.h, bodyD);
+    rect(ctx, x, top, 1, T.h, bodyL);
+    if (T.step) { rect(ctx, x + T.step, top - 6, T.w - 2 * T.step, 6, bodyC); rect(ctx, x + T.step, top - 6, 1, 6, bodyL); }
+    if (T.spire) {
+        var sx = x + Math.round(T.w / 2);
+        rect(ctx, sx, top - T.spire - (T.step ? 6 : 0), 1, T.spire, bodyD);
+        if (nk > 0.2) rect(ctx, sx, top - T.spire - (T.step ? 6 : 0), 1, 1, "#ff4060");
+    }
+    // Ventanas: de noche muchas encendidas, de colores; de día reflejan el cielo.
+    var gx = d === 0 ? 3 : 4, gy = d === 0 ? 3 : 4, ww = d === 0 ? 1 : 2;
+    var wtop = top + 3, wbot = d === 2 ? yB - 15 : yB - 2;
+    var dayC = css(mix(mul(P.hor, 0.7), body, 0.5)), pal = CYBER_WIN[T.seed % CYBER_WIN.length];
+    for (var wy = wtop; wy < wbot; wy += gy)
+        for (var wx = x + 2; wx < x + T.w - 2 - ww; wx += gx) {
+            var hsh = hash2(T.seed + wx, wy);
+            if (nk > 0.05 && hsh < (0.25 + 0.4 * T.lit) * nk) {
+                var c = hsh < 0.05 ? CYBER_WIN[(T.seed + wy) % CYBER_WIN.length] : pal;
+                rect(ctx, wx, wy, ww, 1, css(mix(c, P.haze, haze * 0.8)));
+            } else if (hsh > 0.6) rect(ctx, wx, wy, ww, 1, dayC);
+        }
+    // Franjas horizontales y letrero vertical.
+    if (d === 1) {
+        ctx.fillStyle = bodyD;
+        for (r = top + 12; r < yB; r += 18) ctx.fillRect(x, r, T.w, 1);
+        if (T.vsign) drawNeonSign(ctx, T.vsign.x, T.vsign.y, T.vsign.g, true, NEON[T.vsign.c], P, nk);
+    }
+    if (d < 2) return;
+    // Planta baja: vitrina iluminada, letrero de neón, toldo, aire acondicionado y tubos.
+    var S = T.shop, sc = rgb(NEON[S.c]);
+    var glass = nk > 0.3 ? (S.warm ? [255, 214, 150] : [150, 230, 255]) : mix(mul(P.hor, 0.8), [60, 70, 90], 0.4);
+    rect(ctx, x + 2, yB - 10, T.w - 4, 10, css(lit([30, 28, 40], P)));
+    rect(ctx, x + 3, yB - 9, T.w - 6, 8, css(glass));
+    for (k = x + 3 + 6; k < x + T.w - 4; k += 7) rect(ctx, k, yB - 9, 1, 8, css(lit([40, 38, 50], P)));
+    if (nk > 0.3) for (k = 0; k < 3; k++) rect(ctx, x + 5 + Math.floor(hash2(T.seed, k) * (T.w - 12)), yB - 6, 2, 5, css(mul(glass, 0.55)));
+    var gw = S.g.length * 4 + 1;
+    drawNeonSign(ctx, x + Math.round((T.w - gw) / 2), yB - 17, S.g, false, NEON[S.c], P, nk);
+    if (S.awning) {
+        for (k = 0; k < T.w; k++) rect(ctx, x + k, yB - 11, 1, 2, css(lit(k % 4 < 2 ? sc : [230, 230, 236], P)));
+    }
+    if (S.ac >= 0) {
+        var ay = top + 6;
+        rect(ctx, x + S.ac, ay, 6, 4, css(lit([170, 172, 180], P)));
+        rect(ctx, x + S.ac + 1, ay + 1, 3, 2, css(lit([90, 92, 100], P)));
+    }
+    if (S.pipe) { rect(ctx, x + T.w - 3, top, 1, T.h - 11, css(lit([110, 110, 120], P))); }
+    rect(ctx, x, top, T.w, 1, css(lit([110, 106, 124], P)));
+}
+
+// Letrero de neón con signos inventados (vertical u horizontal); de noche brilla.
+function drawNeonSign(ctx, x, y, glyphs, vert, col, P, nk) {
+    var c = rgb(col), on = nk > 0.3;
+    var n = glyphs.length, w = vert ? 5 : n * 4 + 1, h = vert ? n * 5 + 1 : 6;
+    rect(ctx, x, y, w, h, css(lit([22, 18, 32], P)));
+    var gc = css(on ? mix(c, [255, 255, 255], 0.3) : mix(lit(c, P), [90, 90, 100], 0.45));
+    var fc = css(on ? c : mix(lit(c, P), [80, 80, 90], 0.5));
+    rect(ctx, x, y, w, 1, fc); rect(ctx, x, y + h - 1, w, 1, fc); rect(ctx, x, y, 1, h, fc); rect(ctx, x + w - 1, y, 1, h, fc);
+    ctx.fillStyle = gc;
+    for (var i = 0; i < n; i++) {
+        var gx = vert ? x + 1 : x + 1 + i * 4, gy = vert ? y + 1 + i * 5 : y + 1;
+        for (var r = 0; r < 4; r++) for (var b = 0; b < 3; b++) if (glyphs[i][r] & (1 << b)) ctx.fillRect(gx + b, gy + r, 1, 1);
+    }
+}
+
+function drawTrack(ctx, w, P) {
+    var W = w.W, yT = w.yT, beam = lit([70, 70, 86], P), i;
+    for (i = 0; i < w.pillars.length; i++) {
+        var px = w.pillars[i];
+        rect(ctx, px - 2, yT + 3, 5, w.yB - yT - 3, css(mul(beam, 0.85)));
+        rect(ctx, px - 2, yT + 3, 1, w.yB - yT - 3, css(mix(beam, [255, 255, 255], 0.1)));
+        rect(ctx, px - 5, yT + 3, 11, 2, css(beam));
+    }
+    rect(ctx, 0, yT, W, 4, css(beam));
+    rect(ctx, 0, yT, W, 1, css(mix(beam, [255, 255, 255], 0.2)));
+    rect(ctx, 0, yT + 4, W, 1, css(mul(beam, 0.6)));
+    ctx.fillStyle = css(mul(beam, 0.7));
+    for (var x = 0; x < W; x += 6) ctx.fillRect(x, yT + 2, 3, 1);
+    // Luces bajo la vía.
+    if (P.night > 0.35) for (x = 4; x < W; x += 12) { rect(ctx, x, yT + 4, 1, 1, "#9ff0ff"); ctx.globalAlpha = 0.2; rect(ctx, x - 1, yT + 5, 3, 2, "#9ff0ff"); ctx.globalAlpha = 1; }
+}
+
+function drawNoodleStand(ctx, s, P, night) {
+    var x = s.x, y = s.y, wood = lit([120, 80, 56], P), red = lit([200, 50, 50], P);
+    rect(ctx, x - 12, y - 7, 24, 7, css(wood));
+    rect(ctx, x - 12, y - 7, 24, 1, css(mix(wood, [255, 255, 255], 0.2)));
+    rect(ctx, x - 11, y - 18, 1, 11, css(mul(wood, 0.7))); rect(ctx, x + 10, y - 18, 1, 11, css(mul(wood, 0.7)));
+    for (var k = -13; k <= 13; k++) rect(ctx, x + k, y - 20, 1, 3, css(Math.floor((k + 13) / 3) % 2 ? lit([240, 236, 230], P) : red));
+    rect(ctx, x - 13, y - 17, 27, 1, css(mul(red, 0.7)));
+    // Faroles de papel.
+    for (k = -1; k <= 1; k += 2) {
+        rect(ctx, x + k * 8 - 1, y - 16, 3, 4, night ? "#ff7050" : css(red));
+        if (night) { ctx.globalAlpha = 0.25; disc(ctx, x + k * 8, y - 14, 4, "#ff9070"); ctx.globalAlpha = 1; }
+    }
+    rect(ctx, x - 6, y - 10, 3, 3, css(lit([230, 230, 230], P))); rect(ctx, x + 2, y - 10, 3, 3, css(lit([230, 230, 230], P)));
+    rect(ctx, x - 9, y - 1, 2, 1, css(lit([60, 60, 70], P))); rect(ctx, x + 7, y - 1, 2, 1, css(lit([60, 60, 70], P)));
+}
+
+// Primer plano: postes de luz con cables y un letrero de neón grande que cuelga en una orilla.
+function drawCyberFront(ctx, w, P) {
+    var W = w.W, H = w.H, nk = clamp((P.night - 0.2) / 0.6, 0, 1), pole = css(lit([34, 34, 44], P));
+    var px = w.holo.x < W / 2 ? W - 14 : 10;
+    rect(ctx, px, Math.round(H * 0.3), 3, H, pole);
+    rect(ctx, px - 8, Math.round(H * 0.3), 19, 2, pole);
+    rect(ctx, px - 9, Math.round(H * 0.3) + 2, 4, 2, css(nk > 0.3 ? [255, 250, 230] : lit([200, 200, 200], P)));
+    var g = w.frontSign || (w.frontSign = makeGlyphs(rng(77), 6));
+    drawNeonSign(ctx, px < W / 2 ? px + 4 : px - 6, Math.round(H * 0.42), g, true, NEON[1], P, nk);
+    ctx.fillStyle = pole;
+    for (var x = 0; x < W; x++) {
+        var u = x / W, y = Math.round(H * 0.08 + Math.sin(u * Math.PI) * 14);
+        ctx.fillRect(x, y, 1, 1);
+        if (x % 37 === 0) ctx.fillRect(x, y, 1, 3);
+    }
+}
+
+// Capa ambiental (4 fps): resplandor y parpadeo del neón, holograma, reflectores y vapor.
+function drawCyberAmbient(ctx, w, P, t) {
+    var W = w.W, i, k, nk = clamp((P.night - 0.2) / 0.6, 0, 1), tick = Math.floor(t * 4);
+    // Reflectores que barren el cielo (solo donde se ve cielo).
+    if (nk > 0.3) {
+        for (i = 0; i < w.beams.length; i++) {
+            var B = w.beams[i], a = -Math.PI / 2 + Math.sin(t * B.sp + B.ph) * 0.7, ca = Math.cos(a), sa = Math.sin(a);
+            for (var s = 4; s < 160; s += 1) {
+                var bx = Math.round(B.x + ca * s), by = Math.round(B.y + sa * s), half = 1 + Math.floor(s * 0.06);
+                if (by < 0) break;
+                ctx.globalAlpha = 0.07 * nk * (1 - s / 160);
+                for (k = -half; k <= half; k++) skyDot(ctx, w, bx + k, by, "#d8e8ff");
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+    // Holograma: medusa translúcida con líneas de barrido.
+    var Hh = w.holo, pulse = Math.sin(t * 1.6), hx = Hh.x, hy = Math.round(Hh.y + Math.sin(t * 0.7) * 3);
+    var hc = Math.floor(t / 8) % 2 ? "#5ff2ff" : "#ff5fd0", glitch = hash2(tick, 3) < 0.06 ? 2 : 0;
+    ctx.globalAlpha = 0.25 + 0.35 * nk;
+    var rx = 9 + Math.round(pulse), ry = 7 - Math.round(pulse * 0.5);
+    ctx.fillStyle = hc;
+    for (var yy = -ry; yy <= 0; yy++) {
+        if ((yy + tick) % 3 === 0) continue;
+        var hw = Math.round(rx * Math.sqrt(1 - (yy * yy) / (ry * ry)));
+        ctx.fillRect(hx - hw + glitch * ((yy % 2) ? 1 : -1), hy + yy, hw * 2 + 1, 1);
+    }
+    for (k = -3; k <= 3; k++)
+        for (var j = 1; j < 16; j++) {
+            if ((j + tick) % 3 === 0) continue;
+            ctx.fillRect(Math.round(hx + k * 2.5 + Math.sin(t * 2 + j * 0.4 + k) * (j * 0.18)), hy + j, 1, 1);
+        }
+    ctx.globalAlpha = 0.12 * nk;
+    ell(ctx, hx, hy + 4, 18, 16, hc);
+    ctx.globalAlpha = 1;
+    // Resplandor y parpadeo de los letreros.
+    if (nk > 0.3) {
+        for (i = 0; i < w.towers[1].length; i++) {
+            var vs = w.towers[1][i].vsign;
+            if (!vs) continue;
+            var vh = vs.g.length * 5 + 1;
+            if (hash2(vs.id, Math.floor(t * 6)) < 0.03) { rect(ctx, vs.x, vs.y, 5, vh, css(lit([22, 18, 32], P))); continue; }
+            ctx.globalAlpha = 0.14 * nk;
+            rect(ctx, vs.x - 3, vs.y - 2, 11, vh + 4, NEON[vs.c]);
+            ctx.globalAlpha = 1;
+        }
+        for (i = 0; i < w.towers[2].length; i++) {
+            var T = w.towers[2][i], S = T.shop, gw = S.g.length * 4 + 1, sx = T.x + Math.round((T.w - gw) / 2);
+            if (hash2(S.id, Math.floor(t * 5)) < 0.025) { rect(ctx, sx, w.yB - 17, gw, 6, css(lit([22, 18, 32], P))); continue; }
+            ctx.globalAlpha = 0.16 * nk;
+            rect(ctx, sx - 2, w.yB - 19, gw + 4, 10, NEON[S.c]);
+            ctx.globalAlpha = 1;
+        }
+        // Brillos que tiemblan en los charcos.
+        for (i = 0; i < 40; i++) {
+            if (hash2(i, tick) > 0.5) continue;
+            var px = Math.floor(hash2(i, 5) * W), py = w.yB + 2 + Math.floor(hash2(i, 6) * (w.H - w.yB - 3));
+            ctx.globalAlpha = 0.35;
+            rect(ctx, px, py, 2 + Math.floor(hash2(i, tick + 1) * 3), 1, NEON[i % NEON.length]);
+        }
+        ctx.globalAlpha = 1;
+    }
+    // Vapor de las alcantarillas y del puesto de fideos.
+    for (i = 0; i < w.vents.length; i++) drawSteam(ctx, P, w.vents[i].x, w.vents[i].y, t + i * 3);
+    drawSteam(ctx, P, w.stand.x, w.stand.y - 10, t);
+}
+
+function drawSteam(ctx, P, x, y, t) {
+    var c = css(lit([220, 220, 230], P));
+    for (var i = 0; i < 6; i++) {
+        var age = (t * 0.2 + i / 6) % 1;
+        ctx.globalAlpha = 0.28 * (1 - age);
+        disc(ctx, x + Math.sin(t * 0.9 + i * 2) * age * 4, y - age * 22, 1 + age * 4, c);
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Autos voladores, drones, tren elevado y autos que flotan sobre la calle.
+function stepCyber(w, dt, hour, P) {
+    var R = Math.random, T = w.timers, W = w.W, H = w.H, i;
+    var bz = busy(hour);
+    T.flier -= dt;
+    if (T.flier <= 0) {
+        T.flier = (1 + R() * 2.5) / Math.max(bz, 0.3);
+        if (w.fliers.length < Math.round(10 * Math.max(1, W / 480))) {
+            var lane = Math.floor(R() * 4), d = lane % 2 ? 1 : -1;
+            var ly = [H * 0.16, H * 0.24, H * 0.32, w.yT - 16][lane] + R() * 4;
+            w.fliers.push({ x: d > 0 ? -12 : W + 12, y: Math.round(ly), dir: d, speed: 30 + R() * 30 + lane * 4, far: lane < 2,
+                col: rgb(pick(R, ["#d0d4e0", "#3a3a48", "#c83a4a", "#e0b040", "#2a6ad0"])), glow: rgb(pick(R, NEON)) });
+        }
+    }
+    for (i = w.fliers.length - 1; i >= 0; i--) {
+        var f = w.fliers[i];
+        f.x += f.dir * f.speed * dt;
+        if (f.x < -20 || f.x > W + 20) w.fliers.splice(i, 1);
+    }
+    for (i = 0; i < w.drones.length; i++) {
+        var dr = w.drones[i];
+        dr.ph += dt;
+        dr.x += Math.cos(dr.ph * 0.3) * dr.sp * dt;
+        dr.y += Math.sin(dr.ph * 0.5) * 2 * dt;
+        if (dr.x < -10) dr.x = W + 8; if (dr.x > W + 10) dr.x = -8;
+    }
+    if (w.train) {
+        w.train.x += w.train.dir * 70 * dt;
+        if (w.train.x < -140 || w.train.x > W + 140) w.train = null;
+    } else {
+        T.train -= dt;
+        if (T.train <= 0) {
+            T.train = 25 + R() * 40;
+            if (hour >= 5 || hour < 1.5) { var td = R() < 0.5 ? 1 : -1; w.train = { x: td > 0 ? -130 : W + 130, dir: td, cars: 3 + Math.floor(R() * 2) }; }
+        }
+    }
+    T.hover -= dt;
+    if (T.hover <= 0) {
+        T.hover = (1.5 + R() * 4) / Math.max(bz, 0.2);
+        var hd = R() < 0.5 ? 1 : -1;
+        w.cars.push({ kind: "hover", x: hd > 0 ? -18 : W + 18, y: hd > 0 ? w.yB + 13 : w.yB + 19, dir: hd, speed: 26 + R() * 20,
+            col: rgb(pick(R, ["#d04848", "#2a2a36", "#e8e8f0", "#e0b040", "#3a7ad0", "#7a4ac0"])), glow: rgb(pick(R, NEON)), taxi: R() < 0.2 });
+    }
+}
+
+function drawCyberLife(ctx, w, P, t) {
+    var i, nk = clamp((P.night - 0.2) / 0.6, 0, 1);
+    // Tren elevado.
+    if (w.train) {
+        var tr = w.train, body = lit([200, 204, 214], P), win = nk > 0.3 ? "#bff4ff" : css(mix(mul(P.hor, 0.7), [60, 70, 90], 0.4));
+        for (var c = 0; c < tr.cars; c++) {
+            var cx = Math.round(tr.x - tr.dir * c * 32) - 15;
+            rect(ctx, cx, w.yT - 9, 30, 9, css(body));
+            rect(ctx, cx, w.yT - 9, 30, 1, css(mix(body, [255, 255, 255], 0.3)));
+            rect(ctx, cx + 1, w.yT - 7, 28, 3, win);
+            rect(ctx, cx, w.yT - 3, 30, 1, css(lit(NEON[1] === "#5ff2ff" ? [95, 242, 255] : [255, 95, 162], P)));
+            ctx.fillStyle = css(mul(body, 0.7));
+            for (var k = cx + 5; k < cx + 30; k += 6) ctx.fillRect(k, w.yT - 7, 1, 3);
+        }
+        var head = tr.dir > 0 ? Math.round(tr.x) + 15 : Math.round(tr.x) - 16;
+        rect(ctx, head, w.yT - 6, 1, 2, "#fff4c0");
+        if (nk > 0.3) { ctx.globalAlpha = 0.2; rect(ctx, tr.dir > 0 ? head + 1 : head - 14, w.yT - 6, 14, 2, "#fff4c0"); ctx.globalAlpha = 1; }
+    }
+    // Autos voladores.
+    for (i = 0; i < w.fliers.length; i++) {
+        var f = w.fliers[i], x = Math.round(f.x), y = f.y, d = f.dir, col = lit(f.col, P);
+        if (f.far) col = mix(col, P.haze, 0.35);
+        rect(ctx, x - 4, y, 9, 2, css(col));
+        rect(ctx, d > 0 ? x : x - 3, y - 1, 4, 1, css(mix(lit([150, 200, 240], P), P.hor, 0.3)));
+        rect(ctx, x - 4, y + 2, 9, 1, css(mul(col, 0.7)));
+        ctx.globalAlpha = 0.5 + 0.4 * nk;
+        rect(ctx, x - 3, y + 3, 7, 1, css(f.glow));
+        ctx.globalAlpha = 1;
+        rect(ctx, d > 0 ? x + 4 : x - 4, y, 1, 1, "#fff4c0");
+        rect(ctx, d > 0 ? x - 4 : x + 4, y, 1, 1, "#ff3040");
+        if (nk > 0.3) {
+            ctx.globalAlpha = 0.18;
+            rect(ctx, d > 0 ? x + 5 : x - 14, y, 10, 1, "#fff4c0");
+            ctx.globalAlpha = 0.25;
+            rect(ctx, d > 0 ? x - 12 : x + 5, y + 1, 8, 1, "#ff3040");
+            ctx.globalAlpha = 1;
+        }
+    }
+    // Drones con luz que parpadea.
+    for (i = 0; i < w.drones.length; i++) {
+        var dr = w.drones[i], dx = Math.round(dr.x), dy = Math.round(dr.y);
+        rect(ctx, dx - 1, dy, 3, 1, css(lit([60, 60, 70], P)));
+        rect(ctx, dx - 2, dy - 1, 1, 1, css(lit([90, 90, 100], P))); rect(ctx, dx + 2, dy - 1, 1, 1, css(lit([90, 90, 100], P)));
+        if (Math.floor(t * 2 + dr.ph) % 2 === 0) rect(ctx, dx, dy + 1, 1, 1, i % 2 ? "#5ff2ff" : "#ff5050");
+    }
+}
+
+// Auto que flota sobre la calle, con luz de neón debajo.
+function drawHoverCar(ctx, car, P) {
+    var d = car.dir, x = Math.round(car.x), y = car.y, c = lit(car.col, P), nk = clamp((P.night - 0.2) / 0.6, 0, 1);
+    function bx(o, len) { return d > 0 ? x + o : x - o - len + 1; }
+    ctx.globalAlpha = 0.35 + 0.4 * nk;
+    rect(ctx, bx(-8, 18), y - 1, 18, 1, css(car.glow));
+    ctx.globalAlpha = 0.15 + 0.2 * nk;
+    rect(ctx, bx(-10, 22), y, 22, 1, css(car.glow));
+    ctx.globalAlpha = 1;
+    rect(ctx, bx(-9, 19), y - 5, 19, 3, css(c));
+    rect(ctx, bx(-9, 19), y - 3, 19, 1, css(mul(c, 0.7)));
+    rect(ctx, bx(-4, 10), y - 8, 10, 3, css(c));
+    rect(ctx, bx(-3, 8), y - 7, 8, 2, nk > 0.3 ? "#2a2e48" : css(mix([150, 190, 230], P.hor, 0.3)));
+    rect(ctx, bx(-9, 19), y - 5, 19, 1, css(mix(c, [255, 255, 255], 0.3)));
+    if (car.taxi) rect(ctx, bx(0, 3), y - 9, 3, 1, "#fff4a0");
+    rect(ctx, bx(9, 1), y - 4, 1, 1, "#fff4c0");
+    rect(ctx, bx(-9, 1), y - 4, 1, 1, "#ff3040");
+    if (nk > 0.3) { ctx.globalAlpha = 0.22; rect(ctx, bx(10, 12), y - 4, 12, 1, "#fff4c0"); ctx.globalAlpha = 1; }
+}
+
 // ---------- tabla de escenas ----------
 // Cada escena distinta de la ciudad: create arma el mundo, draw pinta la capa fija (cada ~30 s),
 // front el primer plano, y opcionalmente ambient (4 fps), step (simulación), life (dibujo extra
@@ -4515,8 +4983,13 @@ var SCENES = {
         step: stepMountain, life: drawMountainLife },
     village: { create: createVillage, draw: drawVillage, front: drawVillageFront, ambient: drawVillageAmbient,
         step: stepVillage, life: drawVillageLife },
-    farm: { create: createFarm, draw: drawFarm, front: drawFarmFront, ambient: drawFarmAmbient, step: stepFarm, life: drawFarmLife }
+    farm: { create: createFarm, draw: drawFarm, front: drawFarmFront, ambient: drawFarmAmbient, step: stepFarm, life: drawFarmLife },
+    cyber: { create: createCyber, draw: drawCyber, front: drawCyberFront, ambient: drawCyberAmbient, step: stepCyber, life: drawCyberLife,
+        tint: tintCyber }
 };
+
+// Vehículos de las escenas (w.cars con kind); los demás son los autos de la ciudad.
+var VEHICLES = { tractor: drawFarmVehicle, pickup: drawFarmVehicle, hover: drawHoverCar };
 
 // Animales que caminan entre la gente (w.critters): se ordenan por profundidad con ella.
 var CRITTERS = { crab: drawCrab, deer: drawDeer, skater: function (ctx, c, P) { drawPerson(ctx, c, P); }, cow: drawCow, hen: drawHen };

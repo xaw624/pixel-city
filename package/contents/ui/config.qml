@@ -17,7 +17,8 @@ Kirigami.FormLayout {
         { id: "beach", text: "Playa" },
         { id: "mountain", text: "Montaña con cabaña" },
         { id: "village", text: "Pueblo nevado" },
-        { id: "farm", text: "Campo con granja y molino" }
+        { id: "farm", text: "Campo con granja y molino" },
+        { id: "cyber", text: "Calle ciberpunk" }
     ]
 
     function sceneIndex(id) {
