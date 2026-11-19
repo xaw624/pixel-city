@@ -1239,7 +1239,7 @@ function step(w, dt, hour, P) {
     T.person -= dt;
     if (T.person <= 0) {
         // Más ancho (más líneas de definición) = más gente para que el paseo no se vea vacío.
-        if (w.people.length < Math.round(16 * Math.max(1, W / 480))) spawnPerson(w, false);
+        if (w.people.length < Math.round((w.crowd || 16) * Math.max(1, W / 480))) spawnPerson(w, false);
         T.person = (2.5 + R() * 4) / Math.max(bz, 0.05);
     }
     for (i = w.people.length - 1; i >= 0; i--) {
@@ -2202,6 +2202,7 @@ function drawBlimp(ctx, b, P, t) {
 
 // Auto de 10×4 o autobús de 16×5, apoyado en la fila car.y.
 function drawCar(ctx, car, P) {
+    if (car.kind) return drawFarmVehicle(ctx, car, P);
     var d = car.dir, L = car.bus ? 16 : 10, x0 = Math.round(car.x) - Math.floor(L / 2), yb = car.y;
     var c = lit(car.col, P), body = css(c), hi = css(mix(c, [255, 255, 255], 0.3)), dark = css(mul(c, 0.7));
     var night = P.night > 0.4;
@@ -3272,18 +3273,7 @@ function drawMountainAmbient(ctx, w, P, t) {
         }
     }
 
-    // Luciérnagas en las noches de verano.
-    if (P.night > 0.6 && P.rain < 0.1 && w.month >= 5 && w.month <= 8) {
-        for (i = 0; i < 22; i++) {
-            if (hash2(i, Math.floor(t * 1.5 + i)) < 0.45) continue;
-            var lx = (hash2(i, 61) * W + Math.sin(t * 0.3 + i) * 12 + W) % W;
-            var ly = w.yP + 4 + hash2(i, 62) * (w.H - w.yP - 10) + Math.sin(t * 0.5 + i * 2) * 4;
-            ctx.globalAlpha = 0.3;
-            rect(ctx, lx - 1, ly - 1, 3, 3, "#d8ff70");
-            ctx.globalAlpha = 1;
-            rect(ctx, lx, ly, 1, 1, "#f0ffa0");
-        }
-    }
+    drawFireflies(ctx, w, P, t, w.yP + 4, w.H - 6);
 
     // Fogata del anochecer, si no llueve.
     if (P.night > 0.4 && P.rain < 0.2 && (hour >= 18.5 && hour < 23.5)) drawFlames(ctx, w.fire.x, w.fire.y - 2, t);
@@ -3990,6 +3980,530 @@ function drawVillageLife(ctx, w, P, t) {
     }
 }
 
+// Luciérnagas en las noches de verano, entre las filas y0 y y1.
+function drawFireflies(ctx, w, P, t, y0, y1) {
+    if (!(P.night > 0.6 && P.rain < 0.1 && w.month >= 5 && w.month <= 8)) return;
+    for (var i = 0; i < 22; i++) {
+        if (hash2(i, Math.floor(t * 1.5 + i)) < 0.45) continue;
+        var lx = (hash2(i, 61) * w.W + Math.sin(t * 0.3 + i) * 12 + w.W) % w.W;
+        var ly = y0 + hash2(i, 62) * (y1 - y0) + Math.sin(t * 0.5 + i * 2) * 4;
+        ctx.globalAlpha = 0.3;
+        rect(ctx, lx - 1, ly - 1, 3, 3, "#d8ff70");
+        ctx.globalAlpha = 1;
+        rect(ctx, lx, ly, 1, 1, "#f0ffa0");
+    }
+}
+
+// ---------- escena: campo ----------
+// Lomas con parcelas que cambian de color con la estación, granero rojo con silo, casa con tendedero,
+// molino de aspas que giran, aerogeneradores a lo lejos, camino de tierra con tractor y camioneta,
+// vacas que pastan (y se echan de noche), gallinas, espantapájaros y girasoles en verano.
+
+// Colores de las parcelas según el mes: [principal, surco].
+function fieldCols(kind, m) {
+    var spring = m >= 2 && m <= 4, summer = m >= 5 && m <= 7, autumn = m >= 8 && m <= 10;
+    if (kind === 0) return spring ? [[120, 170, 80], [96, 140, 66]] : (summer ? [[222, 190, 96], [196, 162, 76]] : (autumn ? [[196, 150, 84], [168, 124, 70]] : [[150, 130, 96], [128, 110, 82]]));
+    if (kind === 1) return spring || summer ? [[86, 146, 70], [64, 116, 56]] : (autumn ? [[176, 140, 70], [150, 112, 60]] : [[130, 120, 92], [112, 100, 78]]);
+    if (kind === 2) return [[150, 108, 76], [124, 88, 62]];                                        // arada
+    return summer || spring ? [[150, 120, 196], [122, 96, 166]] : [[120, 150, 90], [100, 126, 74]];   // lavanda o pasto
+}
+
+function createFarm(W, H, seed, opts) {
+    var R = rng(seed || 7), i, x, y;
+    var w = { W: W, H: H, opts: opts || {}, scene: "farm", noGulls: true, noBoats: true, noWater: true, crowd: 5 };
+    w.yW = Math.round(H * 0.56);       // horizonte de las lomas
+    w.base = w.yW;
+    w.axis = w.yW;
+    w.yR = Math.round(H * 0.76);       // camino de tierra
+    w.yP = w.yR + 11;                  // empieza el potrero
+    w.ground = w.yP;
+    w.windows = []; w.antennas = []; w.signs = []; w.tvs = []; w.leds = []; w.screens = [];
+    w.ads = []; w.bigAds = []; w.refl = []; w.layers = [[], [], []];
+    w.lamps = []; w.benches = []; w.trees = []; w.hedge = [];
+
+    w.hills = [
+        makeRidge(R, W, w.yW, H * 0.13, H * 0.05, Math.round(W / 130) + 2, 0.16, 1),
+        makeRidge(R, W, w.yW, H * 0.07, H * 0.02, Math.round(W / 100) + 2, 0.12, 0.6)
+    ];
+    // Parcelas: franjas inclinadas en las lomas y bandas de cultivo hasta el camino.
+    w.patch = [];
+    for (i = 0; i < 40; i++) w.patch.push({ k: ri(R, 0, 3), lean: (R() - 0.5) * 0.8 });
+    w.bands = [];
+    for (y = w.yW; y < w.yR; ) {
+        var bh = ri(R, 5, 10);
+        w.bands.push({ y: y, h: Math.min(bh, w.yR - y), k: ri(R, 0, 3), split: R() < 0.5 ? ri(R, Math.round(W * 0.2), Math.round(W * 0.8)) : -1, k2: ri(R, 0, 3) });
+        y += bh;
+    }
+    w.distTrees = [];
+    for (x = ri(R, 0, 30); x < W; x += ri(R, 18, 60)) w.distTrees.push({ x: x, r: ri(R, 2, 4), d: R() < 0.5 ? 0 : 1 });
+    w.turbines = [];
+    for (i = 0; i < Math.max(2, Math.round(W / 200)); i++) {
+        var tx = ri(R, 10, W - 10);
+        w.turbines.push({ x: tx, y: w.hills[0][tx], h: ri(R, 16, 24), ph: R() * 6 });
+    }
+
+    // Granja: granero con silo y casa en un lado, molino en el otro.
+    var side = R() < 0.5 ? -1 : 1;
+    var bx = Math.round(side < 0 ? W * (0.1 + R() * 0.08) : W * (0.62 + R() * 0.08));
+    w.barn = { x: bx, y: w.yR - 2, w: 40, h: 18 };
+    w.silo = { x: bx + (side < 0 ? 44 : -14), y: w.yR - 2, h: 40 };
+    w.house = { x: bx + (side < 0 ? 64 : -66), y: w.yR - 2, w: 36, h: 16 };
+    w.line = { x0: w.house.x + (side < 0 ? 40 : -24), y: w.yR - 12 };
+    w.mill = { x: Math.round(side < 0 ? W * (0.74 + R() * 0.12) : W * (0.12 + R() * 0.12)), y: w.yR - 3, h: 40 };
+    w.scare = { x: Math.round(W * (0.45 + R() * 0.1)), y: w.yW + Math.round((w.yR - w.yW) * 0.55) };
+    w.bales = [];
+    for (i = 0; i < 4; i++) w.bales.push({ x: ri(R, 10, W - 10), y: ri(R, w.yW + 6, w.yR - 16) });
+    w.mtrees = [];
+    for (i = 0; i < 3; i++) {
+        var mx = ri(R, 10, W - 10);
+        if (Math.abs(mx - w.mill.x) < 30 || Math.abs(mx - bx - 20) < 60) continue;
+        w.mtrees.push({ x: mx, y: w.yR - ri(R, 2, 6), r: ri(R, 7, 10) });
+    }
+
+    w.lanes = [w.yR + 9, w.yR + 11];
+    w.grass = [];
+    for (i = 0; i < Math.round(W * (H - w.yP) / 40); i++) w.grass.push({ x: ri(R, 0, W - 1), y: ri(R, w.yP + 1, H - 1), light: R() < 0.5 });
+    w.flowers = [];
+    for (x = ri(R, -4, 6); x < W + 4; x += ri(R, 5, 9)) w.flowers.push({ x: x, h: ri(R, 12, 22), lean: R() < 0.5 ? -1 : 1 });
+    w.fenceSide = side;
+
+    // Silueta contra el cielo.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(Math.min(w.hills[0][x], w.hills[1][x]));
+    function block(x0, x1, top) { for (var xx = Math.max(0, x0); xx < Math.min(W, x1); xx++) w.sky[xx] = Math.min(w.sky[xx], top); }
+    block(w.barn.x - 2, w.barn.x + w.barn.w + 2, w.barn.y - w.barn.h - 14);
+    block(w.silo.x, w.silo.x + 10, w.silo.y - w.silo.h - 4);
+    block(w.house.x - 2, w.house.x + w.house.w + 2, w.house.y - w.house.h - 10);
+    block(w.mill.x - 9, w.mill.x + 10, w.mill.y - w.mill.h - 6);
+    for (i = 0; i < w.turbines.length; i++) block(w.turbines[i].x, w.turbines[i].x + 1, w.turbines[i].y - w.turbines[i].h);
+
+    genSky(w, R);
+    initLife(w, R);
+    w.critters = [];
+    var nc = Math.max(3, Math.round(W / 110));
+    for (i = 0; i < nc; i++) w.critters.push({ kind: "cow", x: ri(R, 20, W - 20), y: ri(R, w.yP + 12, H - 8), dir: R() < 0.5 ? 1 : -1,
+        state: "graze", tm: R() * 5, spots: ri(R, 0, 999), brown: R() < 0.3, dist: 0 });
+    var hx = w.barn.x + 20;
+    for (i = 0; i < 5; i++) w.critters.push({ kind: "hen", x: clamp(hx + ri(R, -50, 50), 6, W - 6), y: ri(R, w.yP + 4, w.yP + 14), dir: R() < 0.5 ? 1 : -1,
+        state: "idle", tm: R() * 2, brown: R() < 0.4, dist: 0, hx: hx });
+    w.timers.tractor = 5;
+    return w;
+}
+
+function drawFarm(ctx, w, P, t) {
+    var W = w.W, H = w.H, yW = w.yW, yR = w.yR, hour = P.hour, i, x, y, m = w.month;
+    ctx.clearRect(0, 0, W, H);
+    var sc = P.snowCover, snowC = lit([236, 240, 248], P);
+    function fc(k, d, row) {
+        var c = fieldCols(k, m)[row ? 1 : 0];
+        c = mix(lit(c, P), P.haze, d);
+        return css(mix(c, mix(snowC, P.haze, d), clamp(sc * 1.1, 0, 0.9)));
+    }
+    // Lomas con parcelas inclinadas.
+    for (var d = 0; d < 2; d++) {
+        var top = w.hills[d], haze = d ? 0.25 : 0.42;
+        for (x = 0; x < W; x++) {
+            for (y = top[x]; y < yW; y++) {
+                var pi = Math.floor((x + (y - top[x]) * 6 * w.patch[Math.floor(x / 40) % 40].lean) / 26 + d * 7) % 40;
+                var pk = w.patch[(pi + 40) % 40].k;
+                rect(ctx, x, y, 1, 1, fc(pk, haze, (y + d) % 3 === 0));
+            }
+        }
+        // Árboles lejanos sobre la loma.
+        for (i = 0; i < w.distTrees.length; i++) {
+            var dt = w.distTrees[i];
+            if (dt.d !== d) continue;
+            disc(ctx, dt.x, w.hills[d][clamp(dt.x, 0, W - 1)] - dt.r + 1, dt.r, css(mix(mix(lit([60, 100, 66], P), snowC, clamp(sc - 0.3, 0, 0.6)), P.haze, haze)));
+        }
+    }
+    // Aerogeneradores: torre blanca (las aspas giran en la capa ambiental).
+    for (i = 0; i < w.turbines.length; i++) {
+        var tb = w.turbines[i];
+        rect(ctx, tb.x, tb.y - tb.h, 1, tb.h, css(mix(lit([236, 236, 240], P), P.haze, 0.45)));
+    }
+    // Bandas de cultivo hasta el camino, con surcos.
+    for (i = 0; i < w.bands.length; i++) {
+        var b = w.bands[i], far = 0.18 * (1 - (b.y - yW) / (yR - yW));
+        for (var half = 0; half < 2; half++) {
+            var k = half && b.split >= 0 ? b.k2 : b.k, x0 = half ? Math.max(0, b.split) : 0, x1 = half ? W : (b.split >= 0 ? b.split : W);
+            if (x1 <= x0) continue;
+            rect(ctx, x0, b.y, x1 - x0, b.h, fc(k, far, false));
+            ctx.fillStyle = fc(k, far, true);
+            for (y = b.y + 1; y < b.y + b.h; y += 2) ctx.fillRect(x0, y, x1 - x0, 1);
+        }
+        if (b.split >= 0) rect(ctx, b.split - 1, b.y, 2, b.h, css(mix(lit([70, 100, 60], P), snowC, sc * 0.7)));
+        rect(ctx, 0, b.y, W, 1, css(mix(lit([84, 116, 66], P), snowC, sc * 0.8)));
+    }
+    if (P.fog > 0.02) {
+        ctx.fillStyle = css(P.fogc);
+        for (y = yW - 30; y < yR; y += 2) { ctx.globalAlpha = 0.5 * P.fog * clamp(1 - Math.abs(y - yW) / 34, 0.1, 1); ctx.fillRect(0, y, W, 2); }
+        ctx.globalAlpha = 1;
+    }
+    // Pacas de heno en verano y otoño.
+    if (m >= 6 && m <= 9 && sc < 0.3)
+        for (i = 0; i < w.bales.length; i++) {
+            var bl = w.bales[i], hc = lit([214, 180, 96], P);
+            disc(ctx, bl.x, bl.y, 3, css(mul(hc, 0.8))); disc(ctx, bl.x - 1, bl.y - 1, 2, css(hc));
+            rect(ctx, bl.x - 1, bl.y - 1, 1, 1, css(mul(hc, 0.7)));
+        }
+    drawScarecrow(ctx, w.scare, P);
+    for (i = 0; i < w.mtrees.length; i++) {
+        var mt = w.mtrees[i], leaf = lit(m >= 9 && m <= 10 ? [196, 120, 60] : [70, 120, 70], P);
+        rect(ctx, mt.x - 1, mt.y - mt.r, 2, mt.r, css(lit([90, 66, 50], P)));
+        if (m === 11 || m <= 1) {
+            ctx.fillStyle = css(lit([90, 66, 50], P));
+            for (k = 0; k < 5; k++) ctx.fillRect(mt.x - 4 + k * 2, mt.y - mt.r * 2 + (k % 2) * 3, 1, mt.r);
+            if (sc > 0.2) rect(ctx, mt.x - 5, mt.y - mt.r * 2, 10, 1, css(snowC));
+        } else {
+            disc(ctx, mt.x, mt.y - mt.r * 1.6, mt.r, css(mul(leaf, 0.75)));
+            disc(ctx, mt.x - 1, mt.y - mt.r * 1.6 - 1, mt.r - 1, css(leaf));
+            disc(ctx, mt.x - 3, mt.y - mt.r * 1.6 - 3, Math.max(2, mt.r * 0.4), css(mix(leaf, [230, 240, 180], 0.2)));
+            if (sc > 0.2) rect(ctx, mt.x - mt.r + 2, Math.round(mt.y - mt.r * 2.6), mt.r * 2 - 4, 1, css(snowC));
+        }
+    }
+    drawMillBody(ctx, w, P);
+    drawSilo(ctx, w, P);
+    drawBarn(ctx, w, P, hour);
+    drawFarmhouse(ctx, w, P, hour);
+
+    // Cerca y camino de tierra.
+    var wood = lit([150, 116, 84], P), woodC = css(wood), woodD = css(mul(wood, 0.72));
+    rect(ctx, 0, yR - 5, W, 1, woodC);
+    rect(ctx, 0, yR - 2, W, 1, woodD);
+    for (x = 3; x < W; x += 12) { rect(ctx, x, yR - 7, 2, 7, woodC); rect(ctx, x + 1, yR - 7, 1, 7, woodD); if (sc > 0.2) rect(ctx, x, yR - 8, 2, 1, css(snowC)); }
+    var dirt = mix(lit([168, 136, 98], P), snowC, sc * 0.5), dirtC = css(dirt), dirtD = css(mul(dirt, 0.85));
+    rect(ctx, 0, yR, W, 11, dirtC);
+    rect(ctx, 0, yR, W, 1, dirtD);
+    ctx.fillStyle = dirtD;
+    for (x = 0; x < W; x += 3) { if (hash2(x, 5) < 0.5) ctx.fillRect(x, yR + 3, 2, 1); if (hash2(x, 6) < 0.5) ctx.fillRect(x + 1, yR + 7, 2, 1); }
+    rect(ctx, 0, yR + 5, W, 1, css(mix(dirt, lit([110, 140, 80], P), 0.4)));
+    if (P.rain > 0.3) {
+        ctx.globalAlpha = 0.35;
+        for (i = 0; i < 8; i++) ell(ctx, (hash2(i, 9) * W) | 0, yR + 3 + (i % 2) * 4, 6, 1, css(mix(P.hor, dirt, 0.3)));
+        ctx.globalAlpha = 1;
+    }
+    // Potrero.
+    var grass = mix(lit([102, 150, 76], P), snowC, clamp(sc * 1.1, 0, 0.92));
+    rect(ctx, 0, w.yP, W, H - w.yP, css(grass));
+    var gl = css(mix(grass, [255, 255, 220], 0.15)), gd = css(mul(grass, 0.85));
+    for (i = 0; i < w.grass.length; i++) rect(ctx, w.grass[i].x, w.grass[i].y, 1, 1, w.grass[i].light ? gl : gd);
+}
+
+function drawScarecrow(ctx, s, P) {
+    var x = s.x, y = s.y, stick = css(lit([110, 80, 54], P));
+    rect(ctx, x, y - 14, 1, 14, stick);
+    rect(ctx, x - 5, y - 10, 11, 1, stick);
+    rect(ctx, x - 3, y - 11, 7, 5, css(lit([170, 70, 60], P)));
+    rect(ctx, x - 1, y - 11, 3, 1, css(lit([110, 60, 50], P)));
+    rect(ctx, x - 1, y - 14, 3, 3, css(lit([220, 190, 130], P)));
+    rect(ctx, x - 3, y - 15, 7, 1, css(lit([200, 168, 90], P)));
+    rect(ctx, x - 2, y - 17, 5, 2, css(lit([200, 168, 90], P)));
+    rect(ctx, x - 6, y - 10, 1, 2, css(lit([230, 200, 110], P))); rect(ctx, x + 6, y - 10, 1, 2, css(lit([230, 200, 110], P)));
+}
+
+function drawMillBody(ctx, w, P) {
+    var M = w.mill, x = M.x, y = M.y, h = M.h, r;
+    var wall = lit([228, 222, 210], P), wallD = css(mul(wall, 0.82)), cap = lit([90, 70, 60], P), snow = css(lit([240, 244, 252], P));
+    for (r = 0; r < h; r++) {
+        var hw = Math.round(9 - r * 3 / h);
+        rect(ctx, x - hw, y - r, hw * 2 + 1, 1, css(wall));
+        rect(ctx, x + hw - 2, y - r, 3, 1, wallD);
+    }
+    rect(ctx, x - 2, y - 8, 5, 8, css(lit([110, 76, 50], P)));
+    rect(ctx, x - 1, y - 24, 3, 4, css(mix(lit([90, 110, 140], P), P.hor, 0.3)));
+    rect(ctx, x - 1, y - 34, 3, 3, css(mix(lit([90, 110, 140], P), P.hor, 0.3)));
+    rect(ctx, x - 10, y - 18, 21, 1, css(lit([110, 80, 54], P)));     // galería
+    for (r = 0; r < 7; r++) {
+        var cw = Math.round(7 - r);
+        rect(ctx, x - cw, y - h - r, cw * 2 + 1, 1, css(r < 2 ? mul(cap, 0.8) : cap));
+    }
+    if (P.snowCover > 0.2) rect(ctx, x - 4, y - h - 6, 9, 2, snow);
+    if (P.night > 0.4) rect(ctx, x - 1, y - 24, 3, 4, "#ffd27a");
+}
+
+function drawSilo(ctx, w, P) {
+    var S = w.silo, x = S.x, y = S.y, h = S.h, c = lit([196, 196, 204], P);
+    rect(ctx, x, y - h, 10, h, css(c));
+    rect(ctx, x + 7, y - h, 3, h, css(mul(c, 0.8)));
+    rect(ctx, x + 1, y - h, 1, h, css(mix(c, [255, 255, 255], 0.3)));
+    ctx.fillStyle = css(mul(c, 0.86));
+    for (var r = y - h + 5; r < y; r += 6) ctx.fillRect(x, r, 10, 1);
+    disc(ctx, x + 4.5, y - h, 5, css(lit([170, 70, 60], P)));
+    rect(ctx, x - 1, y - h, 12, 1, css(lit([140, 56, 48], P)));
+    if (P.snowCover > 0.2) disc(ctx, x + 4.5, y - h - 2, 3, css(lit([240, 244, 252], P)));
+}
+
+function drawBarn(ctx, w, P, hour) {
+    var B = w.barn, x = B.x, y = B.y, bw = B.w, h = B.h, r;
+    var red = lit([176, 56, 48], P), redC = css(red), redD = css(mul(red, 0.78)), white = css(lit([240, 236, 228], P));
+    var roof = lit([70, 64, 70], P), roofC = css(roof), snow = css(lit([240, 244, 252], P));
+    rect(ctx, x, y - h, bw, h, redC);
+    ctx.fillStyle = redD;
+    for (var k = x + 2; k < x + bw; k += 3) ctx.fillRect(k, y - h, 1, h);
+    // Techo a la holandesa (dos pendientes por lado), con hastial rojo.
+    var cx = x + bw / 2 - 0.5, prof = [[0, 22], [3, 21], [6, 19], [8, 16], [10, 12], [12, 7], [13, 3]];
+    for (r = 0; r < prof.length; r++) {
+        var y0 = y - h - prof[r][0], y1 = r + 1 < prof.length ? y - h - prof[r + 1][0] : y0 - 1, hw = prof[r][1];
+        for (var yy = y0; yy > y1; yy--) {
+            rect(ctx, Math.round(cx - hw), yy - 1, hw * 2 + 1, 1, redC);
+            rect(ctx, Math.round(cx - hw) - 1, yy - 1, 2, 1, roofC);
+            rect(ctx, Math.round(cx + hw), yy - 1, 2, 1, roofC);
+            if (P.snowCover > 0.1) { rect(ctx, Math.round(cx - hw) - 1, yy - 2, 2, 1, snow); rect(ctx, Math.round(cx + hw), yy - 2, 2, 1, snow); }
+        }
+    }
+    rect(ctx, Math.round(cx) - 1, y - h - 15, 3, 1, roofC);
+    // Portón con la X blanca y ventana del pajar.
+    rect(ctx, Math.round(cx) - 7, y - 13, 15, 13, redD);
+    rect(ctx, Math.round(cx) - 7, y - 13, 15, 1, white); rect(ctx, Math.round(cx) - 7, y - 13, 1, 13, white);
+    rect(ctx, Math.round(cx) + 7, y - 13, 1, 13, white); rect(ctx, Math.round(cx), y - 13, 1, 13, white);
+    for (k = 0; k < 6; k++) {
+        rect(ctx, Math.round(cx) - 6 + k, y - 12 + k * 2, 1, 2, white); rect(ctx, Math.round(cx) - 1 - k, y - 12 + k * 2, 1, 2, white);
+        rect(ctx, Math.round(cx) + 1 + k, y - 12 + k * 2, 1, 2, white); rect(ctx, Math.round(cx) + 6 - k, y - 12 + k * 2, 1, 2, white);
+    }
+    rect(ctx, Math.round(cx) - 3, y - h - 8, 7, 6, white);
+    rect(ctx, Math.round(cx) - 2, y - h - 7, 5, 4, css(lit([200, 168, 90], P)));
+    rect(ctx, Math.round(cx) - 2, y - h - 7, 5, 1, css(lit([60, 40, 30], P)));
+    rect(ctx, x, y - h, bw, 1, white);
+    // Farol sobre el portón.
+    if (P.night > 0.4) {
+        ctx.globalAlpha = 0.25; disc(ctx, cx, y - 16, 6, "#ffe0a0"); ctx.globalAlpha = 0.1; ell(ctx, cx, y + 3, 14, 3, "#ffe0a0"); ctx.globalAlpha = 1;
+        rect(ctx, Math.round(cx), y - 16, 1, 2, "#fff0c0");
+    }
+}
+
+function drawFarmhouse(ctx, w, P, hour) {
+    var Hs = w.house, x = Hs.x, y = Hs.y, hw = Hs.w, h = Hs.h, r, i;
+    var wall = lit([238, 232, 216], P), wallC = css(wall), wallD = css(mul(wall, 0.84));
+    var roof = lit([84, 92, 120], P), snow = css(lit([240, 244, 252], P)), night = P.night > 0.35;
+    var on = night && (hour >= 17.5 && hour < 23 || hour >= 5 && hour < 7);
+    rect(ctx, x, y - h, hw, h, wallC);
+    rect(ctx, x + hw - 2, y - h, 2, h, wallD);
+    for (r = 0; r < 10; r++) rect(ctx, x - 3 + r, y - h - 1 - r, hw + 6 - 2 * r, 1, css(r === 0 ? mul(roof, 0.7) : (P.snowCover > 0.2 && r > 2 ? lit([236, 240, 248], P) : roof)));
+    rect(ctx, x + hw - 9, y - h - 13, 4, 6, css(lit([150, 80, 64], P)));
+    if (P.snowCover > 0.2) rect(ctx, x + hw - 10, y - h - 14, 6, 1, snow);
+    // Porche con postes y ventanas.
+    rect(ctx, x - 2, y - 9, hw + 4, 1, css(lit([120, 90, 70], P)));
+    for (i = 0; i < 4; i++) rect(ctx, x + i * Math.round((hw - 1) / 3), y - 8, 1, 8, css(lit([220, 214, 200], P)));
+    rect(ctx, x + Math.round(hw / 2) - 2, y - 7, 4, 7, css(lit([110, 76, 52], P)));
+    var glass = on ? "#ffcf70" : css(mix(lit([100, 130, 160], P), P.hor, 0.3));
+    for (i = 0; i < 3; i++) {
+        var wx = x + 4 + i * Math.round((hw - 12) / 2);
+        rect(ctx, wx, y - h + 3, 4, 4, glass);
+        rect(ctx, wx - 1, y - h + 3, 1, 4, css(lit([80, 110, 80], P))); rect(ctx, wx + 4, y - h + 3, 1, 4, css(lit([80, 110, 80], P)));
+    }
+    if (on) { rect(ctx, x + 3, y - 6, 3, 3, glass); rect(ctx, x + hw - 6, y - 6, 3, 3, glass); }
+    // Tendedero: el poste; la ropa se mueve en la capa ambiental.
+    var L = w.line, pole = css(lit([110, 84, 60], P));
+    rect(ctx, L.x0, L.y, 1, y - L.y, pole);
+    rect(ctx, L.x0 + 20, L.y, 1, y - L.y, pole);
+}
+
+// Aspas del molino: cuatro brazos con su enrejado de tela, girando.
+function drawMillSails(ctx, w, P, t) {
+    var M = w.mill, hx = M.x, hy = M.y - M.h - 2, ang = t * 0.9, sail = css(lit([236, 230, 214], P)), frame = css(lit([90, 66, 48], P));
+    for (var k = 0; k < 4; k++) {
+        var a = ang + k * Math.PI / 2, ca = Math.cos(a), sa = Math.sin(a), nx = -sa, ny = ca;
+        for (var s = 2; s <= 24; s++) {
+            var px = hx + ca * s, py = hy + sa * s;
+            if (s > 6) for (var o = 1; o <= 4; o++)
+                rect(ctx, Math.round(px + nx * o), Math.round(py + ny * o), 1, 1, (s % 3 === 0 || o === 4) ? frame : sail);
+            rect(ctx, Math.round(px), Math.round(py), 1, 1, frame);
+        }
+    }
+    rect(ctx, hx - 1, hy - 1, 3, 3, frame);
+}
+
+// Girasoles en verano (pasto alto el resto del año) y un tramo de cerca delante de todo.
+function drawFarmFront(ctx, w, P) {
+    var H = w.H, i, k, m = w.month, sc = P.snowCover;
+    var stem = css(lit([70, 120, 56], P)), leaf = css(lit([88, 140, 64], P)), snow = css(lit([240, 244, 252], P));
+    var bloom = m >= 5 && m <= 8 && sc < 0.2;
+    for (i = 0; i < w.flowers.length; i++) {
+        var f = w.flowers[i];
+        if ((i % 7) < 2) continue;
+        var x = f.x, top = H - f.h;
+        if (bloom) {
+            rect(ctx, x, top, 1, f.h, stem);
+            rect(ctx, x + f.lean, top + Math.round(f.h * 0.5), 2, 1, leaf);
+            rect(ctx, x - f.lean, top + Math.round(f.h * 0.7), 2, 1, leaf);
+            var pet = css(lit([246, 196, 40], P));
+            rect(ctx, x - 2, top - 2, 5, 5, pet);
+            rect(ctx, x - 3, top - 1, 7, 3, pet);
+            rect(ctx, x - 1, top - 1, 3, 3, css(lit([110, 70, 36], P)));
+        } else {
+            var gc = sc > 0.3 ? snow : css(lit(m >= 8 && m <= 10 ? [180, 160, 96] : [96, 136, 70], P));
+            for (k = 0; k < 3; k++) {
+                var hh = Math.round(f.h * (0.3 + k * 0.12));
+                rect(ctx, x + k - 1, H - hh, 1, hh, k === 1 ? stem : gc);
+            }
+        }
+    }
+    var wood = lit([150, 116, 84], P), woodC = css(wood), woodD = css(mul(wood, 0.72));
+    var fx0 = w.fenceSide < 0 ? w.W - 70 : 0;
+    rect(ctx, fx0, H - 16, 70, 2, woodC);
+    rect(ctx, fx0, H - 9, 70, 2, woodC);
+    for (k = 4; k < 70; k += 16) { rect(ctx, fx0 + k, H - 20, 3, 20, woodC); rect(ctx, fx0 + k + 2, H - 20, 1, 20, woodD); if (sc > 0.2) rect(ctx, fx0 + k, H - 21, 3, 1, snow); }
+    if (sc > 0.2) rect(ctx, fx0, H - 17, 70, 1, snow);
+}
+
+// Capa ambiental del campo (4 fps): aspas de los aerogeneradores, humo, ropa tendida y luciérnagas.
+function drawFarmAmbient(ctx, w, P, t) {
+    var i, k;
+    for (i = 0; i < w.turbines.length; i++) {
+        var tb = w.turbines[i], hx = tb.x, hy = tb.y - tb.h, a0 = t * 1.2 + tb.ph, bc = css(mix(lit([240, 240, 244], P), P.haze, 0.4));
+        for (k = 0; k < 3; k++) {
+            var a = a0 + k * Math.PI * 2 / 3;
+            for (var s = 1; s <= 7; s++) rect(ctx, Math.round(hx + Math.cos(a) * s), Math.round(hy + Math.sin(a) * s), 1, 1, bc);
+        }
+        if (P.night > 0.4 && Math.floor(t) % 2 === 0) rect(ctx, hx, hy - 1, 1, 1, "#ff4040");
+    }
+    var Hs = w.house;
+    drawSmoke(ctx, P, Hs.x + Hs.w - 7, Hs.y - Hs.h - 14, t, 1, w.month >= 10 || w.month <= 2 || P.night > 0.5 ? 1 : 0.4);
+    // Ropa tendida que se mece (no con lluvia ni de noche).
+    var L = w.line;
+    rect(ctx, L.x0, L.y, 21, 1, css(lit([200, 200, 200], P)));
+    if (P.rain < 0.3 && P.night < 0.5) {
+        var cols = [[220, 80, 80], [240, 240, 236], [80, 130, 210], [240, 200, 80]];
+        for (k = 0; k < 4; k++) {
+            var sw = Math.round(Math.sin(t * 2 + k) * 1.2), cx = L.x0 + 2 + k * 5;
+            rect(ctx, cx, L.y + 1, 3, 3 + (k % 2), css(lit(cols[k], P)));
+            rect(ctx, cx + sw, L.y + 4 + (k % 2), 3, 1, css(mul(lit(cols[k], P), 0.85)));
+        }
+    }
+    drawFireflies(ctx, w, P, t, w.yP + 2, w.H - 4);
+}
+
+// Vacas, gallinas y vehículos del camino.
+function stepFarm(w, dt, hour, P) {
+    var R = Math.random, T = w.timers, W = w.W, i, j;
+    var night = P.night > 0.7;
+    for (i = 0; i < w.critters.length; i++) {
+        var c = w.critters[i];
+        c.tm -= dt;
+        if (c.kind === "cow") {
+            if (night) { c.state = "lie"; continue; }
+            if (c.state === "lie") c.state = "graze";
+            if (c.tm <= 0) {
+                var r = R();
+                c.state = r < 0.55 ? "graze" : (r < 0.8 ? "walk" : "stand");
+                if (R() < 0.3) c.dir = -c.dir;
+                c.tm = 3 + R() * 8;
+            }
+            if (c.state === "walk") {
+                c.x += c.dir * 2.2 * dt; c.dist += 2.2 * dt;
+                if (c.x < 14 || c.x > W - 14) { c.dir = -c.dir; c.x = clamp(c.x, 14, W - 14); }
+            }
+        } else {
+            if (night) { c.state = "idle"; continue; }
+            if (c.state === "run") {
+                c.x += c.dir * 18 * dt; c.dist += 18 * dt;
+                if (c.tm <= 0) { c.state = "idle"; c.tm = 1; }
+            } else if (c.tm <= 0) {
+                var r2 = R();
+                c.state = r2 < 0.5 ? "peck" : (r2 < 0.8 ? "idle" : "hop");
+                if (c.state === "hop") { c.x += c.dir * 3; c.dist += 3; }
+                if (R() < 0.35 || Math.abs(c.x - c.hx) > 60) c.dir = c.x > c.hx ? -1 : 1;
+                c.tm = 0.4 + R() * 1.6;
+            }
+            c.x = clamp(c.x, 4, W - 4);
+            for (j = 0; j < w.people.length; j++) {
+                var q = w.people[j];
+                if (c.state !== "run" && Math.abs(q.x - c.x) < 10 && Math.abs(q.y - c.y) < 8) { c.state = "run"; c.dir = q.x < c.x ? 1 : -1; c.tm = 0.6; }
+            }
+        }
+    }
+    T.tractor -= dt;
+    if (T.tractor <= 0) {
+        T.tractor = 25 + R() * 50;
+        if (hour >= 6 && hour < 20 && w.cars.length < 1) {
+            var d = R() < 0.5 ? 1 : -1, tr = R() < 0.6;
+            w.cars.push({ kind: tr ? "tractor" : "pickup", x: d > 0 ? -20 : W + 20, y: w.yR + 7, dir: d, speed: tr ? 6 + R() * 3 : 16 + R() * 8,
+                col: tr ? rgb(pick(R, ["#3a8a3a", "#c83a2a"])) : rgb(pick(R, ["#4a6ac0", "#c8c8d0", "#a04030", "#3a3a44"])), skin: rgb(pick(R, SKINS)) });
+        }
+    }
+    for (i = w.cars.length - 1; i >= 0; i--) {
+        var car = w.cars[i];
+        car.x += car.dir * car.speed * dt;
+        car.ph = (car.ph || 0) + dt * car.speed;
+        if (car.x < -30 || car.x > W + 30) w.cars.splice(i, 1);
+    }
+}
+
+function drawFarmLife(ctx, w, P, t) { drawMillSails(ctx, w, P, t); }
+
+// Tractor (rueda trasera grande) o camioneta con caja; y es la línea del piso.
+function drawFarmVehicle(ctx, car, P) {
+    var d = car.dir, x = Math.round(car.x), y = car.y, c = lit(car.col, P), body = css(c), dark = css(mul(c, 0.7));
+    var tire = "#1c1c24", hub = css(lit([200, 190, 120], P)), night = P.night > 0.4;
+    function bx(o, len) { return d > 0 ? x + o : x - o - len + 1; }
+    if (car.kind === "tractor") {
+        rect(ctx, bx(-2, 11), y - 7, 11, 4, body);
+        rect(ctx, bx(-2, 11), y - 4, 11, 1, dark);
+        rect(ctx, bx(-7, 6), y - 13, 6, 7, css(mix(lit([150, 190, 220], P), P.hor, 0.3)));
+        rect(ctx, bx(-7, 6), y - 14, 6, 1, body); rect(ctx, bx(-7, 1), y - 13, 1, 7, body); rect(ctx, bx(-2, 1), y - 13, 1, 7, body);
+        rect(ctx, bx(-5, 2), y - 11, 2, 2, css(lit(car.skin, P)));
+        rect(ctx, bx(-5, 2), y - 12, 2, 1, css(lit([216, 184, 108], P)));
+        rect(ctx, bx(5, 1), y - 11, 1, 4, css(lit([60, 60, 66], P)));
+        disc(ctx, bx(-5, 1), y - 4, 4, tire);
+        disc(ctx, bx(-5, 1), y - 4, 1.5, hub);
+        disc(ctx, bx(6, 1), y - 2, 2, tire);
+        rect(ctx, bx(6, 1), y - 2, 1, 1, hub);
+        var puff = Math.floor(car.ph / 2) % 3;
+        ctx.globalAlpha = 0.4;
+        rect(ctx, bx(5 - puff, 2), y - 13 - puff * 2, 2, 2, css(lit([150, 150, 156], P)));
+        ctx.globalAlpha = 1;
+        if (night) { rect(ctx, bx(8, 1), y - 6, 1, 1, "#fff4c0"); ctx.globalAlpha = 0.25; rect(ctx, bx(9, 6), y - 6, 6, 1, "#fff4c0"); ctx.globalAlpha = 1; }
+        return;
+    }
+    rect(ctx, bx(-8, 18), y - 5, 18, 3, body);
+    rect(ctx, bx(-8, 18), y - 2, 18, 1, dark);
+    rect(ctx, bx(1, 6), y - 9, 6, 4, body);
+    rect(ctx, bx(2, 4), y - 8, 4, 2, night ? "#2a2e48" : css(mix([150, 190, 230], P.hor, 0.3)));
+    rect(ctx, bx(-8, 1), y - 7, 1, 2, body); rect(ctx, bx(-1, 1), y - 7, 1, 2, body);
+    rect(ctx, bx(-6, 4), y - 7, 4, 2, css(lit([200, 168, 90], P)));          // paja en la caja
+    disc(ctx, bx(-5, 1), y - 1, 1.5, tire); disc(ctx, bx(6, 1), y - 1, 1.5, tire);
+    if (night) { rect(ctx, bx(9, 1), y - 4, 1, 1, "#fff4c0"); rect(ctx, bx(-8, 1), y - 4, 1, 1, "#ff4040"); }
+}
+
+// Vaca de perfil: pastando, parada, caminando o echada (de noche).
+function drawCow(ctx, c, P, t) {
+    var d = c.dir, x0 = Math.round(c.x) - 6, y0 = Math.round(c.y) - 9;
+    var base = c.brown ? [150, 96, 60] : [240, 238, 232], patch = c.brown ? [240, 236, 228] : [40, 38, 42];
+    var B = css(lit(base, P)), Pt = css(lit(patch, P)), pink = css(lit([230, 160, 160], P)), dark = css(lit([40, 36, 40], P));
+    function px(cx, r, cw, ch, col) { rect(ctx, d > 0 ? x0 + cx : x0 + 12 - (cx + cw - 1), y0 + r, cw, ch, col); }
+    var lie = c.state === "lie", ly = lie ? 3 : 0;
+    px(0, 2 + ly, 10, 5, B);
+    for (var k = 0; k < 3; k++) {
+        var sx = Math.floor(hash2(c.spots, k) * 8), sy = Math.floor(hash2(c.spots, k + 9) * 3);
+        px(sx, 2 + sy + ly, 2 + (k % 2), 2, Pt);
+    }
+    px(-1, 2 + ly, 1, 4, B); px(-1, 6 + ly, 1, 1, dark);                       // cola
+    var down = c.state === "graze" && Math.floor(t * 0.7 + c.spots) % 4 !== 0;
+    var hy = lie ? 3 : (down ? 5 : 1);
+    px(10, hy, 3, 3, B); px(11, hy + 2, 2, 2, pink); px(10, hy - 1, 1, 1, dark); px(12, hy - 1, 1, 1, dark);
+    px(11, hy, 1, 1, dark);
+    if (!lie) {
+        var f = c.state === "walk" ? Math.floor(c.dist / 2) % 2 : 0;
+        px(1 + f, 7, 1, 2, B); px(3 - f, 7, 1, 2, B); px(7 + f, 7, 1, 2, B); px(9 - f, 7, 1, 2, B);
+        px(5, 7, 2, 1, pink);
+    }
+}
+
+// Gallina de 5×5: picotea, salta y sale corriendo si alguien pasa cerca.
+function drawHen(ctx, c, P, t) {
+    var d = c.dir, x0 = Math.round(c.x) - 2, y0 = Math.round(c.y) - 4;
+    var B = css(lit(c.brown ? [176, 110, 60] : [244, 242, 236], P)), W2 = css(lit(c.brown ? [140, 84, 46] : [214, 212, 206], P));
+    var red = css(lit([214, 60, 50], P)), beak = css(lit([240, 190, 60], P));
+    function px(cx, r, cw, ch, col) { rect(ctx, d > 0 ? x0 + cx : x0 + 4 - (cx + cw - 1), y0 + r, cw, ch, col); }
+    var peck = c.state === "peck" && Math.floor(t * 4 + c.x) % 2 === 0;
+    px(0, 1, 1, 2, W2);
+    px(1, 2, 3, 2, B); px(1, 3, 2, 1, W2);
+    if (peck) { px(3, 3, 2, 1, B); px(4, 4, 1, 1, beak); px(4, 2, 1, 1, red); }
+    else { px(3, 0, 2, 2, B); px(4, 1, 1, 1, beak); px(3, -1, 1, 1, red); }
+    var f = c.state === "run" ? Math.floor(c.dist / 1.5) % 2 : 0;
+    px(1 + f, 4, 1, 1, beak); px(3 - f, 4, 1, 1, beak);
+}
+
 // ---------- tabla de escenas ----------
 // Cada escena distinta de la ciudad: create arma el mundo, draw pinta la capa fija (cada ~30 s),
 // front el primer plano, y opcionalmente ambient (4 fps), step (simulación), life (dibujo extra
@@ -4000,8 +4514,9 @@ var SCENES = {
     mountain: { create: createMountain, draw: drawMountain, front: drawMountainFront, ambient: drawMountainAmbient,
         step: stepMountain, life: drawMountainLife },
     village: { create: createVillage, draw: drawVillage, front: drawVillageFront, ambient: drawVillageAmbient,
-        step: stepVillage, life: drawVillageLife }
+        step: stepVillage, life: drawVillageLife },
+    farm: { create: createFarm, draw: drawFarm, front: drawFarmFront, ambient: drawFarmAmbient, step: stepFarm, life: drawFarmLife }
 };
 
 // Animales que caminan entre la gente (w.critters): se ordenan por profundidad con ella.
-var CRITTERS = { crab: drawCrab, deer: drawDeer, skater: function (ctx, c, P) { drawPerson(ctx, c, P); } };
+var CRITTERS = { crab: drawCrab, deer: drawDeer, skater: function (ctx, c, P) { drawPerson(ctx, c, P); }, cow: drawCow, hen: drawHen };

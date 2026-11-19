@@ -16,7 +16,8 @@ Kirigami.FormLayout {
         { id: "city", text: "Ciudad junto al agua" },
         { id: "beach", text: "Playa" },
         { id: "mountain", text: "Montaña con cabaña" },
-        { id: "village", text: "Pueblo nevado" }
+        { id: "village", text: "Pueblo nevado" },
+        { id: "farm", text: "Campo con granja y molino" }
     ]
 
     function sceneIndex(id) {
