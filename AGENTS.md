@@ -75,7 +75,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
 (segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`, `cyber`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
-`rainbow`, `fireworks`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`).
+`rainbow`, `fireworks`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`), `jets=1`.
 
 ## Trampas conocidas
 
@@ -102,7 +102,13 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   `draw` y opcionales `step` y `slow`) y se turnan en el orden de `FLYER_ORDER`, saltando los que no
   pueden salir por hora, clima o escenario (el dirigible siempre puede). Los lentos (`slow`) van en la
   capa ambiental; los demás, en la de vida. La hora sale de `clockDots`. Para ver uno ya:
-  `preview.html?flyer=skywrite&live=1` (`dir=-1` para que cruce al revés).
+  `preview.html?flyer=skywrite&live=1` (`dir=-1` para que cruce al revés). Tipos: `blimp` (siempre),
+  `banner` (avioneta con cartel, de día; en la playa alterna con helados), `duster` (fumigadora, solo
+  campo), `skywrite` (hora con humo, de día despejado), `balloon` (globo, de día sin lluvia), `heli`
+  (ciudad, playa, ciberpunk), `holo` (dron con holograma, solo ciberpunk), `swarm` (drones de noche) y
+  `sleigh` (trineo, pueblo del 1 de diciembre al 6 de enero). Los que remolcan cartel usan
+  `drawTowedBanner`; los que deben quedar detrás de los edificios se recortan con `skyPx`/`skyDot`.
+- Jets de la hora en punto: `w.jets`, aparte de los turnos (`stepJets`); `preview.html?jets=1`.
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
 - Al tocar lo común, verifica que la ciudad no cambie: renderiza `drawSky`/`drawCity`/`drawFront`
   con hora y `t` fijos antes y después, y compara con `magick compare -metric AE` (debe dar 0).
