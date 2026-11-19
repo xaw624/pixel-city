@@ -60,13 +60,16 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 ```
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
-(segundos simulados), `seed`, `live=1`.
+(segundos simulados), `seed`, `live=1`, `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
+`rainbow`, `fireworks`; llama a `setWeather` y congela el clima).
 
 ## Trampas conocidas
 
 - **No uses `Screen.devicePixelRatio`**: con escala fraccionaria en Wayland (p. ej. 1.1) Qt reporta 2.
-  El lienzo mide 270 líneas fijas y se escala con `root.height / lh` dentro de un `layer` con
-  `textureSize` explícito.
+  El lienzo mide `lh` líneas (ajuste "Definición": 216, 270, 360 o 540; 270 por omisión, en
+  `contents/config/main.xml` y `contents/ui/config.qml`) y se escala con `root.height / lh` dentro
+  de un `layer` con `textureSize` explícito. Los tamaños de `scene.js` están en pixeles de arte:
+  con más líneas todo se ve más chico y caben más edificios. Prueba con `preview.html?px=2`.
 - Los `Canvas` deben tener `smooth: false` y `antialiasing: false`, o el pixel art sale borroso.
 - `Canvas.canvasSize` no estira la imagen al tamaño del item; no lo uses para escalar.
 - `drawLife` y `drawAmbient` empiezan con `clearRect`: cada uno necesita su propio lienzo.
@@ -74,6 +77,10 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   Lo que cambia poco va en `drawAmbient`, no en `drawLife`.
 - La pausa usa `org.kde.taskmanager`: solo cuenta la **ventana activa** maximizada o a pantalla
   completa (contar todas rompe "mostrar escritorio").
+- El clima vive en `step` (lluvia/nieve/tormenta, neblina, arcoíris, fuegos artificiales). Lo que se
+  pinta en cielo o ciudad (neblina, arcoíris, nieve acumulada) solo se actualiza cada 30 s: cámbialo
+  despacio. Relámpagos y fuegos van en `drawLife` y se recortan con `w.sky` (silueta de la ciudad)
+  para quedar detrás de los edificios.
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
 
 ## Estilo

@@ -8,8 +8,9 @@ import "scene.js" as Scene
 WallpaperItem {
     id: root
 
-    // Alto del dibujo en pixeles de arte; en 1080p cada uno ocupa 4×4 pixeles reales.
-    readonly property int lh: 270
+    // Alto del dibujo en pixeles de arte (ajuste "Definición"); con 270 en 1080p cada uno ocupa
+    // 4×4 pixeles reales.
+    readonly property int lh: Math.max(180, Math.min(720, configuration.Lines || 270))
     readonly property int lw: height > 0 ? Math.ceil(width / height * lh) : 0
     readonly property int fps: 12
 

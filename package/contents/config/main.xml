@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd" >
+  <kcfgfile name=""/>
+
+  <group name="General">
+    <!-- Alto del dibujo en pixeles de arte. Más líneas = pixeles más chicos y más detalle. -->
+    <entry name="Lines" type="Int">
+      <label>Líneas de pixel art (definición)</label>
+      <default>270</default>
+      <min>180</min>
+      <max>720</max>
+    </entry>
+  </group>
+
+</kcfg>

@@ -86,18 +86,34 @@ function palette(w, hour) {
     P.amb = a.amb + (b.amb - a.amb) * f;
     P.night = a.night + (b.night - a.night) * f;
 
-    var rain = w ? w.rain : 0;
+    var rain = w ? w.rain : 0, snow = !!(w && w.snow);
     if (rain > 0) {
-        var gray = mul([122, 128, 142], 0.45 + 0.55 * P.amb);
+        // La nieve deja un cielo gris claro; la tormenta, uno casi negro.
+        var gray = mul(snow ? [168, 172, 186] : [122, 128, 142], 0.45 + 0.55 * P.amb);
+        if (w.storm) gray = mul(gray, 0.72);
         P.top = mix(P.top, mul(gray, 0.85), rain * 0.6);
         P.mid = mix(P.mid, gray, rain * 0.6);
         P.hor = mix(P.hor, mul(gray, 1.1), rain * 0.55);
         P.cl = mix(P.cl, mul(gray, 1.12), rain * 0.7);
         P.cs = mix(P.cs, mul(gray, 0.72), rain * 0.7);
-        P.amb *= 1 - 0.22 * rain;
-        P.night = Math.max(P.night, rain * 0.3);
+        P.amb *= 1 - (snow ? 0.1 : (w.storm ? 0.32 : 0.22)) * rain;
+        P.night = Math.max(P.night, rain * (w.storm ? 0.45 : 0.3));
     }
     P.rain = rain;
+    P.snow = snow;
+    P.snowCover = w ? w.snowCover : 0;
+
+    // Neblina: aclara el horizonte y deja el cielo lechoso.
+    var fog = w ? w.fog : 0;
+    P.fog = fog;
+    P.fogc = mul(mix(P.hor, [232, 230, 236], 0.5), 0.55 + 0.45 * P.amb);
+    if (fog > 0) {
+        P.top = mix(P.top, P.fogc, fog * 0.2);
+        P.mid = mix(P.mid, P.fogc, fog * 0.45);
+        P.hor = mix(P.hor, P.fogc, fog * 0.65);
+        P.cl = mix(P.cl, P.fogc, fog * 0.3);
+        P.cs = mix(P.cs, P.fogc, fog * 0.4);
+    }
     P.haze = mix(P.hor, P.mid, 0.35);
     P.water = mix(mix(P.hor, P.mid, 0.6), [28, 36, 72], 0.3);
     P.waterDeep = mix(P.water, [20, 24, 52], 0.35);
@@ -223,10 +239,49 @@ function create(W, H, seed, opts) {
     w.splashes = [];
     w.meteors = [];
     w.blimp = { x: Math.round(W * (0.2 + R() * 0.3)), y: ri(R, 16, 34), dir: 1, speed: 5 };
-    w.timers = { blimp: 60, person: 0, flock: 6, gull: 12, car: 0, boat: 15, plane: 25, meteor: 150, pigeon: 5, weather: 900 + R() * 1200 };
+    w.timers = { blimp: 60, person: 0, flock: 6, gull: 12, car: 0, boat: 15, plane: 25, meteor: 150, pigeon: 5, weather: 900 + R() * 1200,
+        fog: 20, bolt: 8, show: 40, rocket: 0 };
     w.rain = 0;
     w.rainTarget = 0;
     w.rainChance = 0.18;
+    // Escenarios del clima (ver step): nieve, tormenta, neblina, arcoíris y fuegos artificiales.
+    w.month = new Date().getMonth();
+    w.snow = false;            // la precipitación actual es nieve
+    w.storm = false;           // la lluvia actual trae relámpagos
+    w.snowCover = 0;           // nieve acumulada en techos, barandal y árboles (0..1)
+    w.fog = 0;
+    w.fogTarget = 0;
+    w.wet = 0;                 // recuerdo de la última lluvia, para el arcoíris
+    w.rainbow = 0;
+    w.bolt = null;
+    w.flash = 0;
+    w.show = 0;                // segundos que le quedan al espectáculo de fuegos artificiales
+    w.rockets = [];
+    w.sparks = [];
+    w.hour = 12;
+    w.lock = false;            // setWeather fija el clima (arneses de prueba)
+
+    // Silueta de la ciudad: lo que está arriba de sky[x] se ve contra el cielo.
+    w.sky = [];
+    for (x = 0; x < W; x++) w.sky.push(w.base);
+    for (var d = 0; d < 3; d++)
+        for (i = 0; i < w.layers[d].length; i++) {
+            var bb = w.layers[d][i];
+            for (j = 0; j < bb.tiers.length; j++) {
+                var T = bb.tiers[j];
+                for (var tx = 0; tx < T.w; tx++) {
+                    var top = T.top;
+                    if (bb.slant) {
+                        // Techo en diagonal: la columna empieza donde la alcanza el corte.
+                        var off = bb.slant.dir > 0 ? tx : T.w - 1 - tx, rr = 0;
+                        while (rr < bb.slant.h && Math.max(1, Math.round(T.w * (rr + 1) / bb.slant.h)) <= off) rr++;
+                        top += rr;
+                    }
+                    var sx = T.x + tx;
+                    if (sx >= 0 && sx < W && top < w.sky[sx]) w.sky[sx] = top;
+                }
+            }
+        }
     for (i = 0; i < 4; i++) w.pigeons.push(newPigeon(w, true, ri(R, 20, W - 20)));
     for (i = 0; i < 2; i++) w.pigeons.push(newPigeon(w, false, ri(R, 30, W - 30)));
     return w;
@@ -519,6 +574,7 @@ function drawSky(ctx, w, P) {
     }
 
     var sun = sunPos(w, P.hour);
+    if (sun) drawRays(ctx, w, P, sun);
     if (sun) {
         var sc = mix([255, 246, 214], [255, 170, 110], sun.low);
         ctx.globalAlpha = 0.18 * (1 - P.rain);
@@ -540,6 +596,60 @@ function drawSky(ctx, w, P) {
         rect(ctx, moon.x + 1, moon.y - 3, 1, 1, "#d9d4bc");
         ctx.globalAlpha = 1;
     }
+    if (sun && w.rainbow > 0.02) drawRainbow(ctx, w, P, sun);
+}
+
+// Rayos de sol que salen de detrás de los edificios cuando el sol está bajo (amanecer y
+// atardecer). Con neblina se marcan más. Cada rayo es una cuña recortada fila por fila.
+function drawRays(ctx, w, P, sun) {
+    var k = clamp((sun.low - 0.45) / 0.5, 0, 1) * (1 - P.rain) * (1 + 0.8 * P.fog);
+    if (k < 0.03) return;
+    var c = mix([255, 236, 190], [255, 180, 120], sun.low), col = css(c);
+    // Resplandor cálido en el horizonte, alrededor del sol.
+    for (var g = 0; g < 4; g++) {
+        ctx.globalAlpha = 0.1 * k;
+        ell(ctx, sun.x, w.base, Math.round(w.W * (0.42 - g * 0.09)), Math.round(w.base * (0.42 - g * 0.08)), col);
+    }
+    var reach = sun.y - 4;
+    ctx.fillStyle = col;
+    for (var i = 0; i < 7; i++) {
+        var a = (i - 3) * 0.36 + (hash2(i, 5) - 0.5) * 0.2, da = 0.045 + hash2(i, 9) * 0.05;
+        var t0 = Math.tan(a - da), t1 = Math.tan(a + da), str = 0.6 + hash2(i, 13) * 0.4;
+        for (var y = Math.max(0, sun.y - 6); y >= 0; y--) {
+            var up = sun.y - y, fade = 1 - (up / reach) * (up / reach);
+            if (fade <= 0) break;
+            var x0 = Math.round(sun.x + up * t0), x1 = Math.round(sun.x + up * t1);
+            if (x1 < 0 || x0 >= w.W) continue;
+            ctx.fillStyle = col;
+            ctx.globalAlpha = 0.2 * k * str * fade;
+            ctx.fillRect(x0, y, Math.max(1, x1 - x0), 1);
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Arcoíris del lado opuesto al sol, después de la lluvia.
+var RAINBOW = ["#ff5a5a", "#ffa040", "#ffe45a", "#70dc70", "#5aa8ff", "#9070ff"];
+function drawRainbow(ctx, w, P, sun) {
+    var cx = sun.x < w.W / 2 ? Math.round(w.W * 0.7) : Math.round(w.W * 0.3);
+    var cy = w.base + 8, R0 = Math.round(w.base * 0.86);
+    var k = w.rainbow * 0.48 * (1 - P.rain * 0.6);
+    for (var b = 0; b < RAINBOW.length; b++) {
+        ctx.fillStyle = RAINBOW[b];
+        for (var s = 0; s < 2; s++) {
+            var r = R0 - b * 2 - s, prev = null;
+            for (var x = cx - r; x <= cx + r; x++) {
+                if (x < 0 || x >= w.W) { prev = null; continue; }
+                var dx = x - cx, y = Math.round(cy - Math.sqrt(r * r - dx * dx));
+                // Más tenue arriba, como los de verdad.
+                ctx.globalAlpha = k * (0.55 + 0.45 * Math.abs(dx) / r);
+                var y0 = prev === null ? y : Math.min(y, prev + 1), y1 = prev === null ? y : Math.max(y, prev - 1);
+                ctx.fillRect(x, y0, 1, y1 - y0 + 1);
+                prev = y;
+            }
+        }
+    }
+    ctx.globalAlpha = 1;
 }
 
 // ---------- capa: nubes (lienzo de 2W de ancho, se repite cada W) ----------
@@ -753,11 +863,42 @@ function drawBuildings(ctx, w, P, t, hour, collect) {
         for (var i = 0; i < w.layers[d].length; i++) drawBuilding(ctx, w, w.layers[d][i], P, t, hour, collect);
 }
 
+// Nieve acumulada sobre los techos planos de una capa de edificios.
+function drawRoofSnow(ctx, w, d, P) {
+    var sc = P.snowCover, col = css(mix(lit([236, 240, 248], P), P.haze, d === 0 ? 0.45 : 0));
+    ctx.globalAlpha = clamp(sc * 1.5, 0, 1);
+    for (var i = 0; i < w.layers[d].length; i++) {
+        var b = w.layers[d][i];
+        if (b.slant) continue;
+        var ins = b.style === "round" ? 2 : 0;
+        for (var j = 0; j < b.tiers.length; j++) {
+            var T = b.tiers[j];
+            rect(ctx, T.x + ins, T.top, T.w - 2 * ins, 1, col);
+            if (sc > 0.55 && d > 0) rect(ctx, T.x + ins + 1, T.top - 1, T.w - 2 * ins - 2, 1, col);
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+
 function drawCity(ctx, w, P, t) {
     var W = w.W, H = w.H, hour = P.hour;
     ctx.clearRect(0, 0, W, H);
     w.refl = [];
-    drawBuildings(ctx, w, P, t, hour, true);
+    // Capa por capa, para que la neblina cubra más a los edificios lejanos.
+    for (var d = 0; d < 3; d++) {
+        for (var bi = 0; bi < w.layers[d].length; bi++) drawBuilding(ctx, w, w.layers[d][bi], P, t, hour, true);
+        if (P.snowCover > 0.03) drawRoofSnow(ctx, w, d, P);
+        if (P.fog > 0.02) {
+            var fh = Math.round(w.base * 0.8), fa = [0.48, 0.4, 0.26][d] * P.fog;
+            ctx.fillStyle = css(P.fogc);
+            for (var fy = 0; fy < fh; fy += 2) {
+                var u = 1 - fy / fh;
+                ctx.globalAlpha = fa * u * u;
+                ctx.fillRect(0, w.base - fy - 2, W, 2);
+            }
+            ctx.globalAlpha = 1;
+        }
+    }
 
     // Malecón del otro lado, con su calle.
     var road = lit([70, 68, 92], P);
@@ -791,6 +932,17 @@ function drawCity(ctx, w, P, t) {
         rect(ctx, l.x, l.y, l.len, 1, l.light ? wl : wd);
     }
     ctx.globalAlpha = 1;
+    // Neblina pegada al agua.
+    if (P.fog > 0.02) {
+        ctx.fillStyle = css(P.fogc);
+        for (y = w.base; y < wBot; y += 2) {
+            var mu = 1 - (y - w.base) / (wBot - w.base);
+            ctx.globalAlpha = 0.5 * P.fog * mu;
+            ctx.fillRect(0, y, W, 2);
+        }
+        ctx.globalAlpha = 1;
+    }
+    var snowC = css(lit([236, 240, 248], P)), sc = P.snowCover;
 
     // Barandal.
     var railC = lit([96, 92, 118], P), yP = w.yP;
@@ -800,9 +952,10 @@ function drawCity(ctx, w, P, t) {
     rect(ctx, 0, yP + 4, W, 1, railD);
     ctx.fillStyle = railD;
     for (var x = 2; x < W; x += 9) ctx.fillRect(x, yP + 2, 1, 5);
+    if (sc > 0.15) rect(ctx, 0, yP - 1, W, sc > 0.5 ? 2 : 1, snowC);
 
-    // Piso del paseo.
-    var pave = lit([150, 144, 166], P);
+    // Piso del paseo (blanqueado si nevó).
+    var pave = mix(lit([150, 144, 166], P), lit([226, 230, 240], P), sc * 0.75);
     rect(ctx, 0, yP + 7, W, 2, css(mul(pave, 0.75)));
     rect(ctx, 0, yP + 7, W, 1, css(mix(pave, [255, 255, 255], 0.1)));
     rect(ctx, 0, w.ground, W, H - w.ground, css(pave));
@@ -831,6 +984,7 @@ function drawCity(ctx, w, P, t) {
         rect(ctx, bx, w.ground + 4, 13, 1, css(mix(bench, [255, 255, 255], 0.15)));
         rect(ctx, bx + 1, w.ground + 2, 1, 5, metal);
         rect(ctx, bx + 11, w.ground + 2, 1, 5, metal);
+        if (sc > 0.2) rect(ctx, bx, w.ground - 1, 13, 1, snowC);
     }
 
     // Faroles.
@@ -840,6 +994,7 @@ function drawCity(ctx, w, P, t) {
         rect(ctx, lx, top, 1, 30, pole);
         rect(ctx, lx - 1, w.ground + 2, 3, 2, pole);
         rect(ctx, lx - 2, top, 5, 1, pole);
+        if (sc > 0.3) rect(ctx, lx - 2, top - 1, 5, 1, snowC);
         if (P.night > 0.35) {
             ctx.globalAlpha = 0.22;
             disc(ctx, lx, top + 2, 7, "#ffe9b0");
@@ -858,6 +1013,8 @@ function drawCity(ctx, w, P, t) {
 function drawFront(ctx, w, P) {
     ctx.clearRect(0, 0, w.W, w.H);
     var base = lit([62, 86, 84], P), dark = css(mul(base, 0.68)), mid = css(base), light = css(mix(base, [190, 220, 170], 0.25));
+    // Con nieve, lo alto de cada copa se pinta blanco.
+    if (P.snowCover > 0.15) light = css(mix(mix(base, [190, 220, 170], 0.25), lit([236, 240, 248], P), clamp(P.snowCover * 1.2, 0, 1)));
     var trunk = css(lit([70, 56, 52], P));
     var i, j, p;
     for (i = 0; i < w.trees.length; i++) {
@@ -898,8 +1055,9 @@ function spawnPerson(w, onScreen) {
     var L = lanes(w);
     var y = L[Math.floor(R() * L.length)];
     var x = onScreen ? R() * w.W : (dir > 0 ? -10 : w.W + 10);
-    var r = R();
-    var kind = r < 0.08 ? "jog" : (r < 0.18 ? "dog" : (r < 0.26 ? "family" : "walk"));
+    // Al amanecer salen más corredores.
+    var r = R(), dawn = w.hour >= 5.3 && w.hour < 8.5 && w.rain < 0.3;
+    var kind = r < (dawn ? 0.3 : 0.08) ? "jog" : (r < (dawn ? 0.42 : 0.18) ? "dog" : (r < (dawn ? 0.46 : 0.26) ? "family" : "walk"));
     var p = newPerson(w, x, y, dir, kind === "jog" ? 20 + R() * 5 : 7 + R() * 5, false);
     p.jog = kind === "jog";
     if (kind === "dog") p.dog = { col: rgb(DOGS[Math.floor(R() * DOGS.length)]) };
@@ -935,21 +1093,112 @@ function step(w, dt, hour, P) {
     if (dt <= 0) return;
     var R = Math.random, T = w.timers, W = w.W, i, j;
 
-    // Clima: de vez en cuando llueve un rato.
+    w.hour = hour;
+
+    // Clima: de vez en cuando llueve (o nieva, en invierno) un rato; a veces con tormenta.
     T.weather -= dt;
-    if (T.weather <= 0) {
+    if (T.weather <= 0 && !w.lock) {
         w.rainTarget = R() < w.rainChance ? 0.5 + R() * 0.5 : 0;
+        if (w.rain < 0.05) {
+            var m = w.month;
+            w.snow = w.rainTarget > 0 && R() < (m === 11 || m <= 1 ? 0.55 : (m === 2 || m === 10 ? 0.15 : 0));
+        }
+        w.storm = w.rainTarget > 0.75 && !w.snow && R() < 0.6;
         T.weather = (w.rainTarget > 0 ? 300 : 900) + R() * 1200;
     }
     var dr = w.rainTarget - w.rain;
     w.rain += clamp(dr, -dt / 40, dt / 40);
+
+    // La nieve se acumula mientras cae y se derrite despacio cuando para.
+    if (w.snow && w.rain > 0.2) w.snowCover = Math.min(1, w.snowCover + dt * w.rain / 500);
+    else if (!w.lock) w.snowCover = Math.max(0, w.snowCover - dt / 1500);
+
+    // Neblina matinal: aparece algunas madrugadas y se disipa a media mañana.
+    if (!w.lock) {
+        if (hour >= 9.3 || hour < 3.5) w.fogTarget = 0;
+        T.fog -= dt;
+        if (T.fog <= 0) {
+            T.fog = 600 + R() * 600;
+            if (hour >= 3.5 && hour < 8 && w.fogTarget === 0 && R() < 0.4) w.fogTarget = 0.55 + R() * 0.45;
+        }
+    }
+    // Cambia despacio: la ciudad y el cielo solo se repintan cada 30 s.
+    w.fog += clamp(w.fogTarget - w.fog, -dt / 300, dt / 300);
+
+    // Arcoíris: cuando la lluvia amaina con el sol todavía alto.
+    if (!w.lock) {
+        if (w.rain > 0.4 && !w.snow) w.wet = 1;
+        else w.wet = Math.max(0, w.wet - dt / 420);
+        var bow = w.wet > 0.1 && w.rainTarget === 0 && w.rain < 0.35 && hour >= 7 && hour < 17.5 ? 1 : 0;
+        w.rainbow += clamp(bow - w.rainbow, -dt / 120, dt / 120);
+    }
+
+    // Tormenta eléctrica: relámpagos detrás de los edificios y un destello en toda la escena.
+    w.flash = Math.max(0, w.flash - dt * 3.5);
+    if (w.bolt) { w.bolt.life -= dt; if (w.bolt.life <= 0) w.bolt = null; }
+    if (w.storm && w.rain > 0.6) {
+        T.bolt -= dt;
+        if (T.bolt <= 0) {
+            T.bolt = 5 + R() * 16;
+            w.flash = 0.7 + R() * 0.3;
+            if (R() < 0.75) w.bolt = makeBolt(w, R);
+        }
+    }
+
+    // Fuegos artificiales: algunas noches despejadas, más probables en fin de semana y Año Nuevo.
+    T.show -= dt;
+    if (T.show <= 0 && !w.lock) {
+        T.show = 600 + R() * 900;
+        var dt0 = new Date(), dow = dt0.getDay();
+        var nye = (dt0.getMonth() === 11 && dt0.getDate() === 31 && hour >= 23.5) || (dt0.getMonth() === 0 && dt0.getDate() === 1 && hour < 1);
+        var late = hour >= 20.5 || hour < 0.5;
+        var chance = nye ? 1 : (dow === 5 || dow === 6 ? 0.3 : 0.08);
+        if (late && P.night > 0.85 && w.rainTarget === 0 && w.rain < 0.1 && R() < chance) w.show = nye ? 1800 : 80 + R() * 100;
+    }
+    if (w.show > 0) {
+        if (!w.lock) w.show -= dt;
+        T.rocket -= dt;
+        if (T.rocket <= 0) {
+            T.rocket = 0.5 + R() * 1.8;
+            var rx = W * (0.1 + R() * 0.8);
+            w.rockets.push({ x: rx, y: w.base, vx: (R() - 0.5) * 6, vy: -(85 + R() * 30), ty: 14 + R() * w.base * 0.3,
+                col: rgb(FIREWORKS[Math.floor(R() * FIREWORKS.length)]), col2: rgb(FIREWORKS[Math.floor(R() * FIREWORKS.length)]),
+                kind: Math.floor(R() * 3) });
+        }
+    }
+    for (i = w.rockets.length - 1; i >= 0; i--) {
+        var rk = w.rockets[i];
+        rk.x += rk.vx * dt;
+        rk.y += rk.vy * dt;
+        if (rk.y <= rk.ty) {
+            // Estalla: anillo, palmera (caen más) o crisantemo de dos colores.
+            var n = rk.kind === 1 ? 30 : 44;
+            for (j = 0; j < n; j++) {
+                var ang = j / n * Math.PI * 2 + R() * 0.15, sp = (rk.kind === 0 ? 30 : 10 + R() * 28);
+                var life = rk.kind === 1 ? 2 + R() * 0.8 : 1.2 + R() * 0.6;
+                w.sparks.push({ x: rk.x, y: rk.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 0.85, life: life, max: life,
+                    col: rk.kind === 2 && j % 2 ? rk.col2 : rk.col, heavy: rk.kind === 1 });
+            }
+            w.rockets.splice(i, 1);
+        }
+    }
+    for (i = w.sparks.length - 1; i >= 0; i--) {
+        var spk = w.sparks[i], drag = Math.pow(0.25, dt);
+        spk.vx *= drag; spk.vy *= drag;
+        spk.vy += (spk.heavy ? 22 : 12) * dt;
+        spk.x += spk.vx * dt;
+        spk.y += spk.vy * dt;
+        spk.life -= dt;
+        if (spk.life <= 0) w.sparks.splice(i, 1);
+    }
 
     var bz = busy(hour);
 
     // Personas.
     T.person -= dt;
     if (T.person <= 0) {
-        if (w.people.length < 16) spawnPerson(w, false);
+        // Más ancho (más líneas de definición) = más gente para que el paseo no se vea vacío.
+        if (w.people.length < Math.round(16 * Math.max(1, W / 480))) spawnPerson(w, false);
         T.person = (2.5 + R() * 4) / Math.max(bz, 0.05);
     }
     for (i = w.people.length - 1; i >= 0; i--) {
@@ -1117,26 +1366,69 @@ function step(w, dt, hour, P) {
         if (m.life <= 0) w.meteors.splice(i, 1);
     }
 
-    // Lluvia.
-    var want = Math.round(170 * w.rain);
-    while (w.drops.length < want) w.drops.push({ x: R() * (W + 40), y: R() * w.H - w.H, v: 110 + R() * 60 });
+    // Lluvia o nieve: los copos caen despacio y se mecen de lado.
+    var want = Math.round((w.snow ? 220 : 170) * w.rain * Math.max(1, W * w.H / (480 * 270)));
+    while (w.drops.length < want) w.drops.push({ x: R() * (W + 40), y: R() * w.H - w.H, v: 0, snow: w.snow, ph: R() * 6, big: R() < 0.3 });
     if (w.drops.length > want) w.drops.length = want;
     for (i = 0; i < w.drops.length; i++) {
         var dp = w.drops[i];
+        if (!dp.v) dp.v = dp.snow ? 12 + R() * 12 : 110 + R() * 60;
         dp.y += dp.v * dt;
-        dp.x -= dp.v * 0.15 * dt;
+        if (dp.snow) { dp.ph += dt; dp.x += (Math.sin(dp.ph * 1.7) * 7 - 3) * dt; }
+        else dp.x -= dp.v * 0.15 * dt;
         var floor = dp.floor || (dp.floor = R() < 0.5 ? w.yW + R() * (w.yP - w.yW) : w.ground + R() * (w.H - w.ground));
         if (dp.y > floor) {
-            if (w.splashes.length < 60) w.splashes.push({ x: dp.x, y: floor, life: 0.25 });
+            if (!dp.snow && w.splashes.length < 60) w.splashes.push({ x: dp.x, y: floor, life: 0.25 });
             dp.y = -5 - R() * 30;
             dp.x = R() * (W + 40);
             dp.floor = 0;
+            dp.snow = w.snow;
+            dp.v = 0;
         }
     }
     for (i = w.splashes.length - 1; i >= 0; i--) {
         w.splashes[i].life -= dt;
         if (w.splashes[i].life <= 0) w.splashes.splice(i, 1);
     }
+}
+
+var FIREWORKS = ["#ff5f6d", "#ffd35f", "#5ff2ff", "#9dff6a", "#c08cff", "#ffffff", "#ff9a3c", "#ff7ad9"];
+
+// Relámpago en zigzag desde las nubes, con alguna rama.
+function makeBolt(w, R) {
+    var x = Math.round(w.W * (0.1 + R() * 0.8)), pts = [], branch = [];
+    for (var y = 6; y < w.base; y++) {
+        if (R() < 0.45) x += R() < 0.5 ? -1 : 1;
+        if (R() < 0.06) x += R() < 0.5 ? -2 : 2;
+        pts.push([x, y]);
+        if (!branch.length && y > 30 && R() < 0.04) {
+            var bx = x, dir = R() < 0.5 ? -1 : 1;
+            for (var by = y; by < y + 18 + R() * 20; by++) {
+                if (R() < 0.6) bx += dir;
+                branch.push([bx, by]);
+            }
+        }
+    }
+    return { pts: pts, branch: branch, life: 0.45 };
+}
+
+// Fija un escenario de clima (para los arneses de prueba y capturas). kind: "clear", "rain",
+// "storm", "snow", "fog", "rainbow", "fireworks". Después de llamarla el clima ya no cambia solo.
+function setWeather(w, kind) {
+    w.lock = true;
+    w.timers.weather = 1e9;
+    w.rain = w.rainTarget = 0;
+    w.snow = w.storm = false;
+    w.fog = w.fogTarget = 0;
+    w.rainbow = w.wet = 0;
+    w.snowCover = 0;
+    w.show = 0;
+    if (kind === "rain") w.rain = w.rainTarget = 0.8;
+    else if (kind === "storm") { w.rain = w.rainTarget = 1; w.storm = true; w.timers.bolt = 0.5; }
+    else if (kind === "snow") { w.rain = w.rainTarget = 0.75; w.snow = true; w.snowCover = 1; }
+    else if (kind === "fog") w.fog = w.fogTarget = 0.9;
+    else if (kind === "rainbow") { w.rain = 0.15; w.wet = 1; w.rainbow = 1; }
+    else if (kind === "fireworks") { w.show = 1e9; w.timers.rocket = 0; }
 }
 
 // Simula un rato para que la escena no arranque vacía.
@@ -1329,6 +1621,20 @@ function drawAmbient(ctx, w, P, t) {
     // El dirigible va delante de los edificios, sus luces LED y antenas.
     if (w.blimp) drawBlimp(ctx, w.blimp, P, t);
 
+    // Jirones de neblina que se arrastran despacio entre los edificios y sobre el agua.
+    if (P.fog > 0.05) {
+        ctx.fillStyle = css(mix(P.fogc, [255, 255, 255], 0.12));
+        for (i = 0; i < 12; i++) {
+            var fl = 40 + Math.round(hash2(i, 21) * 90), fy = Math.round(w.base - 40 + hash2(i, 22) * 70);
+            var fx = (hash2(i, 23) * (W + fl) + t * (1.5 + hash2(i, 24) * 2.5)) % (W + fl) - fl;
+            for (j = 0; j < 3; j++) {
+                ctx.globalAlpha = P.fog * (j === 1 ? 0.16 : 0.08);
+                ctx.fillRect(Math.round(fx) + (j === 1 ? 0 : 8), fy + j, fl - (j === 1 ? 0 : 16), 1);
+            }
+        }
+        ctx.globalAlpha = 1;
+    }
+
     // Ondas que se desplazan sobre el agua.
     var wTop = w.yW, wBot = w.yP + 6, wh = wBot - wTop;
     ctx.fillStyle = css(mix(P.water, [255, 255, 255], 0.35));
@@ -1378,6 +1684,31 @@ function drawLife(ctx, w, P, t) {
         }
     }
     ctx.globalAlpha = 1;
+
+    // Fuegos artificiales y relámpagos: solo donde se ve cielo (detrás de los edificios).
+    for (i = 0; i < w.rockets.length; i++) {
+        var rk = w.rockets[i];
+        for (j = 0; j < 4; j++) {
+            ctx.globalAlpha = 1 - j / 4;
+            skyDot(ctx, w, rk.x - rk.vx * j * 0.03, rk.y + j * 2, j ? "#ffd9a0" : "#fff6e0");
+        }
+    }
+    for (i = 0; i < w.sparks.length; i++) {
+        var spk = w.sparks[i], fade = spk.life / spk.max;
+        if (fade < 0.3 && hash2(i, Math.floor(t * 12)) < 0.4) continue;   // chispean al apagarse
+        ctx.globalAlpha = clamp(fade * 1.4, 0, 1);
+        skyDot(ctx, w, spk.x, spk.y, css(fade > 0.85 ? mix(spk.col, [255, 255, 255], 0.6) : spk.col));
+        ctx.globalAlpha *= 0.35;
+        skyDot(ctx, w, spk.x - spk.vx * 0.06, spk.y - spk.vy * 0.06, css(spk.col));
+    }
+    ctx.globalAlpha = 1;
+    if (w.bolt && Math.floor(w.bolt.life * 20) % 3 !== 1) {
+        var bpts = w.bolt.pts.concat(w.bolt.branch);
+        ctx.globalAlpha = 0.3;
+        for (i = 0; i < bpts.length; i++) skyDot(ctx, w, bpts[i][0] - 1, bpts[i][1], "#b8c8ff", 3);
+        ctx.globalAlpha = 1;
+        for (i = 0; i < bpts.length; i++) skyDot(ctx, w, bpts[i][0], bpts[i][1], "#f4f6ff");
+    }
 
     // Aviones.
     for (i = 0; i < w.planes.length; i++) {
@@ -1443,14 +1774,21 @@ function drawLife(ctx, w, P, t) {
         else drawPigeon(ctx, ground[i].g, P, t);
     }
 
-    // Lluvia.
+    // Lluvia y nieve.
     if (w.drops.length) {
         ctx.globalAlpha = 0.65;
-        ctx.fillStyle = css(mix(P.cl, [210, 225, 255], 0.6));
+        var rainC = css(mix(P.cl, [210, 225, 255], 0.6)), flakeC = css(mix([240, 244, 252], P.cl, 0.2));
         for (i = 0; i < w.drops.length; i++) {
             var dp = w.drops[i];
-            ctx.fillRect(Math.round(dp.x), Math.round(dp.y), 1, 3);
+            if (dp.snow) {
+                ctx.fillStyle = flakeC;
+                ctx.fillRect(Math.round(dp.x), Math.round(dp.y), dp.big ? 2 : 1, dp.big ? 2 : 1);
+            } else {
+                ctx.fillStyle = rainC;
+                ctx.fillRect(Math.round(dp.x), Math.round(dp.y), 1, 3);
+            }
         }
+        ctx.fillStyle = rainC;
         ctx.globalAlpha = 0.6;
         for (i = 0; i < w.splashes.length; i++) {
             var sp = w.splashes[i];
@@ -1459,6 +1797,20 @@ function drawLife(ctx, w, P, t) {
         }
         ctx.globalAlpha = 1;
     }
+
+    // Destello del relámpago sobre toda la escena.
+    if (w.flash > 0.02) {
+        ctx.globalAlpha = w.flash * 0.28;
+        rect(ctx, 0, 0, W, w.H, "#dce4ff");
+        ctx.globalAlpha = 1;
+    }
+}
+
+// Pixel (o cuadro de s×s) que solo se dibuja si en ese punto se ve el cielo.
+function skyDot(ctx, w, x, y, col, s) {
+    x = Math.round(x); y = Math.round(y);
+    if (x < 0 || x >= w.W || y < 0 || y >= w.sky[x]) return;
+    rect(ctx, x, y, s || 1, 1, col);
 }
 
 // Rota el tono de un color (f en vueltas completas).

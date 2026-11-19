@@ -17,9 +17,19 @@ completamente por código (sin videos ni imágenes).
 - **Vida**: gente paseando (con perros, familias, corredores), palomas que se espantan cuando alguien
   pasa, bandadas, gaviotas, autos, taxis y autobuses, ferris, veleros y lanchas.
 - **Dirigible con reloj** que muestra la hora actual.
-- **Clima**: de vez en cuando llueve y la gente saca paraguas.
+- **Clima y escenarios** que aparecen solos:
+  - **Amanecer** con rayos de sol que salen de detrás de los edificios y más corredores en el paseo.
+  - **Neblina matinal** algunas madrugadas, más espesa sobre el agua y los edificios lejanos; se
+    disipa a media mañana.
+  - **Lluvia** (la gente saca paraguas) y **tormenta eléctrica** con relámpagos y destellos.
+  - **Arcoíris** cuando escampa con el sol todavía alto.
+  - **Nieve** en invierno, que se acumula en techos, barandal, bancas y árboles.
+  - **Fuegos artificiales** algunas noches despejadas (más seguido en fin de semana, y siempre en
+    Año Nuevo).
 - **Ligero**: dibuja en un lienzo de 270 líneas escalado sin suavizado, y se **pausa** cuando la
   ventana activa está maximizada o a pantalla completa.
+- **Definición ajustable**: en **Configurar escritorio y fondo** puedes elegir 216, 270, 360 o 540
+  líneas. Con más líneas, los pixeles son más finos y hay más edificios; consume algo más de CPU.
 
 | Mañana | Mediodía | Atardecer | Lluvia |
 |---|---|---|---|
@@ -77,7 +87,8 @@ Medido en una laptop con i5-8300H a 1920×1080 (proceso `plasmashell` completo, 
 - `package/contents/ui/main.qml`: el fondo de Plasma. Apila las capas (cielo, nubes, ciudad,
   ambiente a 4 fps, vida a 12 fps, primer plano) y las escala a pantalla completa.
 - `preview.html`: vista previa en el navegador. Parámetros: `?hour=18.5`, `&rain=0.8`, `&live=1`
-  (animada), `&seed=7`.
+  (animada), `&seed=7`, `&weather=` para fijar un escenario (`clear`, `rain`, `storm`, `snow`,
+  `fog`, `rainbow`, `fireworks`).
 - `catalog.html`: hoja con todos los estilos de edificio, de día y de noche.
 - `cat-test.html`: fotogramas de la animación del gato.
 

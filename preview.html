@@ -13,13 +13,15 @@
 <script src="package/contents/ui/scene.js"></script>
 <script>
 // Arnés de pruebas: compone las mismas capas que main.qml en un solo lienzo.
-// Parámetros: ?hour=18.5&rain=0.8&sim=60&seed=7&live=1
+// Parámetros: ?hour=18.5&rain=0.8&weather=fog&sim=60&seed=7&px=4&live=1 (px: pixeles de pantalla por pixel de arte)
 var q = new URLSearchParams(location.search);
-var PX = 4, W = Math.ceil(innerWidth / PX), H = Math.ceil(innerHeight / PX);
+var PX = +(q.get("px") || 4), W = Math.ceil(innerWidth / PX), H = Math.ceil(innerHeight / PX);
 var world = create(W, H, +(q.get("seed") || 20251115));
 var fixedHour = q.has("hour") ? +q.get("hour") : null;
 function hourNow() { var d = new Date(); return fixedHour !== null ? fixedHour : d.getHours() + d.getMinutes() / 60; }
 if (q.has("rain")) { world.rain = world.rainTarget = +q.get("rain"); world.timers.weather = 1e9; }
+// weather=clear|rain|storm|snow|fog|rainbow|fireworks fija un escenario de clima.
+if (q.has("weather")) setWeather(world, q.get("weather"));
 
 function layer(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 var sky = layer(W, H), clouds = layer(W * 2, H), city = layer(W, H), ambient = layer(W, H), life = layer(W, H), front = layer(W, H);
