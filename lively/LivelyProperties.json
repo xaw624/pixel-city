@@ -3,14 +3,89 @@
     "type": "dropdown",
     "value": 0,
     "text": "Escenario",
-    "items": ["Ciudad junto al agua", "Playa", "Montaña con cabaña", "Pueblo nevado", "Campo con granja y molino", "Calle ciberpunk"]
+    "items": [
+      "Ciudad junto al agua",
+      "Playa",
+      "Montaña con cabaña",
+      "Pueblo nevado",
+      "Campo con granja y molino",
+      "Calle ciberpunk"
+    ]
+  },
+  "rotate": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Cambiar de escenario",
+    "help": "Según la estación: pueblo nevado en invierno, campo en primavera, playa en verano y montaña en otoño.",
+    "items": [
+      "No, siempre el elegido",
+      "Cada hora",
+      "Cada día",
+      "Según la estación del año"
+    ]
+  },
+  "city": {
+    "type": "slider",
+    "value": 0,
+    "min": 0,
+    "max": 999,
+    "step": 1,
+    "text": "Ciudad n.º",
+    "help": "Cada número arma otra ciudad (y otra playa, montaña…). La 0 es la original."
   },
   "lines": {
     "type": "dropdown",
     "value": 1,
     "text": "Definición",
     "help": "Con más definición hay más detalle y la gente se ve más chica; usa algo más de CPU.",
-    "items": ["Baja · pixeles grandes (216 líneas)", "Normal (270 líneas)", "Alta (360 líneas)", "Muy alta · pixeles finos (540 líneas)"]
+    "items": [
+      "Baja · pixeles grandes (216 líneas)",
+      "Normal (270 líneas)",
+      "Alta (360 líneas)",
+      "Muy alta · pixeles finos (540 líneas)"
+    ]
+  },
+  "flyers": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Relojes voladores (dirigible, avionetas, globo, drones…)"
+  },
+  "jets": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Jets a la hora en punto"
+  },
+  "oddities": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Curiosidades (ovni, satélites, aurora, gato, monstruo del lago…)"
+  },
+  "seasons": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Adornos de temporada (Halloween y Día de Muertos)"
+  },
+  "clock12": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Reloj de 12 horas"
+  },
+  "noflash": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Sin destellos",
+    "help": "Quita los relámpagos y el flash de las fotos, y hace que las chispas y luces no parpadeen."
+  },
+  "fps": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Animación",
+    "help": "Con menos cuadros por segundo el fondo gasta menos batería.",
+    "items": [
+      "Normal (12 cuadros por segundo)",
+      "Ahorro (8 cuadros por segundo)",
+      "Mínima (6 cuadros por segundo)"
+    ]
   },
   "mouse": {
     "type": "checkbox",

@@ -1430,7 +1430,7 @@ function step(w, dt, hour, P) {
     // En las noches de lluvia de estrellas caen muchas, todas desde el mismo punto del cielo.
     T.meteor -= dt;
     if (T.meteor <= 0) {
-        var shower = w.showerT > 0 || ((hour >= 21 || hour < 5) && showerNight(w));
+        var shower = w.showerT > 0 || (!w.noOdd && (hour >= 21 || hour < 5) && showerNight(w));
         T.meteor = shower ? 2 + R() * 8 : 200 + R() * 300;
         if (P.night > 0.8 && P.rain < 0.1) {
             if (shower) {
@@ -1675,7 +1675,7 @@ function drawPhone(ctx, p, X, Y, d, P, top, skin) {
     ctx.globalAlpha = 0.22 * P.night;
     spr(ctx, X, Y, d, 2, 1, 2, 2, "#9cc4ff");
     // Destello de una décima de segundo, más o menos cada medio minuto.
-    if (hash2(Math.floor(p.dist * 2), p.seed) < 0.003) {
+    if (!OPT.noFlash && hash2(Math.floor(p.dist * 2), p.seed) < 0.003) {
         var fx = d > 0 ? X + 4 : X;
         ctx.globalAlpha = 0.2;
         rect(ctx, fx - 4, Y - 1, 9, 9, "#ffffff");
@@ -1753,12 +1753,12 @@ function drawAmbient(ctx, w, P, t) {
         for (i = 0; i < w.tvs.length; i++) {
             var tv = w.tvs[i];
             if (hash2(tv.id, Math.floor(t / 300)) > 0.5) continue;
-            var k = hash2(tv.id, Math.floor(t * 2));
+            var k = hash2(tv.id, Math.floor(t * (OPT.noFlash ? 0.3 : 2)));
             rect(ctx, tv.x, tv.y, tv.w, tv.h, k < 0.33 ? "#7fa8ff" : (k < 0.66 ? "#a8c8ff" : "#6a80e0"));
         }
         for (i = 0; i < w.signs.length; i++) {
             var s = w.signs[i];
-            if (hash2(s.id, Math.floor(t * 8)) < 0.025) {
+            if (!OPT.noFlash && hash2(s.id, Math.floor(t * 8)) < 0.025) {
                 ctx.globalAlpha = 0.75;
                 rect(ctx, s.x, s.y, s.w, s.h, "#1a1a2a");
                 ctx.globalAlpha = 1;
@@ -1884,14 +1884,14 @@ function drawLife(ctx, w, P, t) {
     }
     for (i = 0; i < w.sparks.length; i++) {
         var spk = w.sparks[i], fade = spk.life / spk.max;
-        if (fade < 0.3 && hash2(i, Math.floor(t * 12)) < 0.4) continue;   // chispean al apagarse
+        if (!OPT.noFlash && fade < 0.3 && hash2(i, Math.floor(t * 12)) < 0.4) continue;   // chispean al apagarse
         ctx.globalAlpha = clamp(fade * 1.4, 0, 1);
         skyDot(ctx, w, spk.x, spk.y, css(fade > 0.85 ? mix(spk.col, [255, 255, 255], 0.6) : spk.col));
         ctx.globalAlpha *= 0.35;
         skyDot(ctx, w, spk.x - spk.vx * 0.06, spk.y - spk.vy * 0.06, css(spk.col));
     }
     ctx.globalAlpha = 1;
-    if (w.bolt && Math.floor(w.bolt.life * 20) % 3 !== 1) {
+    if (w.bolt && !w.noFlash && Math.floor(w.bolt.life * 20) % 3 !== 1) {
         var bpts = w.bolt.pts.concat(w.bolt.branch);
         ctx.globalAlpha = 0.3;
         for (i = 0; i < bpts.length; i++) skyDot(ctx, w, bpts[i][0] - 1, bpts[i][1], "#b8c8ff", 3);
@@ -2005,7 +2005,7 @@ function drawLife(ctx, w, P, t) {
     }
 
     // Destello del relámpago sobre toda la escena.
-    if (w.flash > 0.02) {
+    if (w.flash > 0.02 && !w.noFlash) {
         ctx.globalAlpha = w.flash * 0.28;
         rect(ctx, 0, 0, W, w.H, "#dce4ff");
         ctx.globalAlpha = 1;
@@ -2346,7 +2346,7 @@ var FLYERS = {
     },
     ufo: {
         // De madrugada y sin mucha lluvia; ni siempre que le toca, para que sorprenda.
-        ok: function (w, h) { return (h >= 21 || h < 4.5) && w.rain < 0.3 && Math.random() < 0.5; },
+        ok: function (w, h) { return !w.noOdd && (h >= 21 || h < 4.5) && w.rain < 0.3 && Math.random() < 0.5; },
         make: makeUfo,
         step: stepUfo,
         draw: drawUfo
@@ -2355,6 +2355,7 @@ var FLYERS = {
 
 // Saca el siguiente reloj volador que pueda salir (el dirigible siempre puede).
 function nextFlyer(w, hour, R) {
+    if (w.noFlyers) return;
     var d = R() < 0.5 ? 1 : -1, n = FLYER_ORDER.length;
     for (var i = 1; i <= n; i++) {
         var k = (w.flyerIdx + i) % n, kind = FLYER_ORDER[k];
@@ -2380,7 +2381,7 @@ function stepJets(w, dt, hour, R) {
     var now = new Date();
     if (now.getMinutes() === 0 && w.jetHour !== now.getHours()) {
         w.jetHour = now.getHours();
-        if (!w.jets && hour > 8 && hour < 19 && w.rain < 0.05 && w.fog < 0.3) spawnJets(w, R);
+        if (!w.jets && !w.noJets && hour > 8 && hour < 19 && w.rain < 0.05 && w.fog < 0.3) spawnJets(w, R);
     }
     var J = w.jets;
     if (!J) return;
@@ -2418,10 +2419,13 @@ function drawJets(ctx, w, P) {
 }
 
 // Pixeles [x, y] de la hora "HH:MM" con dígitos de 3×5 (17×5 en total); los dos puntos parpadean.
+// Con OPT.clock12 la hora va de 1 a 12 y sin cero a la izquierda.
 function clockDots(t, solid) {
     var now = new Date(t * 1000), hh = now.getHours(), mm = now.getMinutes();
-    var digits = [Math.floor(hh / 10), hh % 10, -1, Math.floor(mm / 10), mm % 10], out = [], cx = 0;
+    if (OPT.clock12) hh = hh % 12 || 12;
+    var digits = [OPT.clock12 && hh < 10 ? -2 : Math.floor(hh / 10), hh % 10, -1, Math.floor(mm / 10), mm % 10], out = [], cx = 0;
     for (var i = 0; i < digits.length; i++) {
+        if (digits[i] === -2) { cx += 4; continue; }
         if (digits[i] < 0) {
             if (solid || Math.floor(t) % 2 === 0) out.push([cx, 1], [cx, 3]);
             cx += 2;
@@ -2737,7 +2741,7 @@ function drawHolo(ctx, f, P, t, w) {
     rect(ctx, cx, y + 2, 1, 1, tick % 6 < 3 ? "#bffcff" : cyan);
     // A ratos el holograma se apaga un instante o se le corre una fila.
     var g = hash2(Math.floor(f.id), tick);
-    if (g < 0.04) return;
+    if (g < 0.04 && !OPT.noFlash) return;
     var glitchRow = g < 0.16 ? Math.floor(g * 100) % 9 : -1, gx = glitchRow >= 0 ? (g < 0.1 ? 2 : -2) : 0;
     var hx = cx - 11, hy = y + 7;
     // Haz desde la lente que se abre hacia el holograma.
@@ -2909,7 +2913,7 @@ function drawUfo(ctx, f, P, t, w) {
     sprite(ctx, UFO, x, y, false, UFO_PAL, function (k) { return css(night ? k : lit(k, P)); });
     rect(ctx, x + 6, y, 2, 1, "#e8fff4");                           // brillo del domo
     // Luces del borde que corren de un lado a otro.
-    var LC = ["#ff5f6d", "#ffd35f", "#5ff2ff"], ph = Math.floor(t * 8);
+    var LC = ["#ff5f6d", "#ffd35f", "#5ff2ff"], ph = Math.floor(t * (OPT.noFlash ? 2 : 8));
     for (i = 0; i < 5; i++) rect(ctx, x + 1 + i * 3, y + 3, 1, 1, LC[(i + ph) % 3]);
     if (f.beam > 0 || Math.floor(t * 3) % 2) rect(ctx, x + 5, y + 5, 5, 1, "#f0fff4");
 }
@@ -5786,6 +5790,7 @@ function showerNight(w) {
 // Temporadas: calabazas del 25 al 31 de octubre (y niños disfrazados de fantasma la noche del 31),
 // papel picado, cempasúchil y velas del 28 de octubre al 2 de noviembre.
 function season(w) {
+    if (w.noSeason) return { halloween: false, boo: false, muertos: false };
     var d = today(w), m = d.getMonth(), day = d.getDate();
     return { halloween: m === 9 && day >= 25, boo: m === 9 && day === 31, muertos: (m === 9 && day >= 28) || (m === 10 && day <= 2) };
 }
@@ -5804,7 +5809,7 @@ function stepOddities(w, dt, hour, P) {
     T.sat -= dt;
     if (T.sat <= 0) {
         T.sat = 70 + R() * 150;
-        if (night && clear && !w.noStars) {
+        if (night && clear && !w.noStars && !w.noOdd) {
             var twi = (hour >= 19.5 && hour < 22) || (hour >= 4 && hour < 6);
             spawnSat(w, R() < (twi ? 0.35 : 0.05), R);
         }
@@ -5821,7 +5826,7 @@ function stepOddities(w, dt, hour, P) {
         if (T.aurora <= 0) {
             T.aurora = 600;
             var mo = today(w).getMonth();
-            w.auroraTarget = AURORA[w.scene] && (mo >= 9 || mo <= 2) && (hour >= 20.5 || hour < 4.5) && w.rain < 0.1 && R() < 0.3 ? 1 : 0;
+            w.auroraTarget = !w.noOdd && AURORA[w.scene] && (mo >= 9 || mo <= 2) && (hour >= 20.5 || hour < 4.5) && w.rain < 0.1 && R() < 0.3 ? 1 : 0;
         }
         if (w.rain > 0.2 || (hour >= 5 && hour < 19.5)) w.auroraTarget = 0;
     }
@@ -5832,7 +5837,7 @@ function stepOddities(w, dt, hour, P) {
     if (T.balloon <= 0) {
         T.balloon = 40 + R() * 80;
         var holders = w.people.filter(function (p) { return p.balloon && p.x > 20 && p.x < W - 20; });
-        if (holders.length && R() < 0.5) releaseBalloon(w, holders[Math.floor(R() * holders.length)], R);
+        if (holders.length && !w.noOdd && R() < 0.5) releaseBalloon(w, holders[Math.floor(R() * holders.length)], R);
     }
     for (i = w.balloons.length - 1; i >= 0; i--) {
         var b = w.balloons[i];
@@ -5846,7 +5851,7 @@ function stepOddities(w, dt, hour, P) {
     T.odd -= dt;
     if (T.odd <= 0) {
         T.odd = 50 + R() * 100;
-        if ((hour >= 20 || hour < 5.5) && w.rain < 0.3 && w.odd.length < 1 && R() < 0.6)
+        if (!w.noOdd && (hour >= 20 || hour < 5.5) && w.rain < 0.3 && w.odd.length < 1 && R() < 0.6)
             spawnOdd(w, hour < 5.5 && R() < 0.5 ? "opossum" : "cat", R);
     }
     for (i = w.odd.length - 1; i >= 0; i--) {
@@ -5884,7 +5889,7 @@ function stepOddities(w, dt, hour, P) {
         T.nessie -= dt;
         if (T.nessie <= 0) {
             T.nessie = 400 + R() * 900;
-            if (!w.nessie && w.rain < 0.6 && R() < 0.4) w.nessie = makeNessie(w, R);
+            if (!w.nessie && !w.noOdd && w.rain < 0.6 && R() < 0.4) w.nessie = makeNessie(w, R);
         }
         if (w.nessie) {
             w.nessie.age += dt;
@@ -5898,7 +5903,7 @@ function stepOddities(w, dt, hour, P) {
         T.whale -= dt;
         if (T.whale <= 0) {
             T.whale = 300 + R() * 600;
-            if (!w.whale && hour >= 7 && hour < 18.5 && w.rain < 0.4 && w.fog < 0.3 && R() < 0.5) w.whale = makeWhale(w, R);
+            if (!w.whale && !w.noOdd && hour >= 7 && hour < 18.5 && w.rain < 0.4 && w.fog < 0.3 && R() < 0.5) w.whale = makeWhale(w, R);
         }
         if (w.whale) {
             w.whale.age += dt;
@@ -6111,7 +6116,7 @@ function drawAurora(ctx, w, P, t) {
 function drawOddAmbient(ctx, w, P, t) {
     var S = season(w);
     if (S.muertos || S.halloween) drawSeason(ctx, w, P, t, S);
-    if (w.scene === "mountain") { drawOwl(ctx, w, P, t); drawWolf(ctx, w, P, t); }
+    if (w.scene === "mountain" && !w.noOdd) { drawOwl(ctx, w, P, t); drawWolf(ctx, w, P, t); }
     if (w.whale) drawWhale(ctx, w, w.whale, P);
 }
 
@@ -6479,6 +6484,44 @@ function drawRipples(ctx, w, P) {
         }
     }
     ctx.globalAlpha = 1;
+}
+
+// ---------- opciones del usuario ----------
+// setOptions(w, o) aplica los ajustes que se pueden cambiar sin regenerar la escena:
+//   noFlash  sin destellos: sin relámpagos ni flash de fotos, chispas sin parpadeo y luces más lentas
+//   clock12  reloj de 12 horas en todo lo que muestra la hora
+//   flyers, jets, oddities, seasons  (false los apaga) relojes voladores, jets de la hora en punto,
+//            curiosidades y adornos de temporada. Las órdenes de los atajos funcionan igual.
+// noFlash y clock12 también viven en OPT porque drawPerson y clockDots no reciben el mundo.
+var OPT = { noFlash: false, clock12: false };
+function setOptions(w, o) {
+    o = o || {};
+    OPT.noFlash = w.noFlash = !!o.noFlash;
+    OPT.clock12 = !!o.clock12;
+    w.noFlyers = o.flyers === false;
+    w.noJets = o.jets === false;
+    w.noOdd = o.oddities === false;
+    w.noSeason = o.seasons === false;
+    if (w.noFlyers && w.flyer) { if (w.flyer.cow) w.flyer.cow.lift = 0; w.flyer = null; }
+    if (w.noJets) w.jets = null;
+    if (w.noOdd) {
+        w.sats = []; w.odd = []; w.nessie = w.whale = null;
+        w.auroraTarget = 0;
+        if (!w.lock) w.aurora = 0;
+    }
+}
+
+// Escenario que toca según el modo de rotación: "off" (el elegido), "hour" (cambia cada hora),
+// "day" (cada día) o "season" (pueblo en invierno, campo en primavera, playa en verano y montaña
+// en otoño).
+var SCENE_ORDER = ["city", "beach", "mountain", "village", "farm", "cyber"];
+function sceneFor(mode, fixed, d) {
+    d = d || new Date();
+    var day = Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000), m = d.getMonth();
+    if (mode === "hour") return SCENE_ORDER[(day * 24 + d.getHours()) % SCENE_ORDER.length];
+    if (mode === "day") return SCENE_ORDER[day % SCENE_ORDER.length];
+    if (mode === "season") return m === 11 || m <= 1 ? "village" : (m <= 4 ? "farm" : (m <= 7 ? "beach" : "mountain"));
+    return fixed;
 }
 
 // ---------- tabla de escenas ----------

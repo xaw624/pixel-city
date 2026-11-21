@@ -18,6 +18,52 @@
       <label>Escenario</label>
       <default>city</default>
     </entry>
+    <!-- Cambiar de escenario solo: "off", "hour", "day" o "season". -->
+    <entry name="Rotate" type="String">
+      <label>Cambiar de escenario</label>
+      <default>off</default>
+    </entry>
+    <!-- Número de ciudad: 0 es la original; cada número genera otra (suma a la semilla fija). -->
+    <entry name="City" type="Int">
+      <label>Ciudad</label>
+      <default>0</default>
+      <min>0</min>
+      <max>99999</max>
+    </entry>
+    <!-- Cuadros por segundo de la capa de vida: 12, 8 o 6. -->
+    <entry name="Fps" type="Int">
+      <label>Fluidez</label>
+      <default>12</default>
+    </entry>
+    <!-- Cuándo pausar: "active", "any" o "never". -->
+    <entry name="Pause" type="String">
+      <label>Pausar</label>
+      <default>active</default>
+    </entry>
+    <entry name="Clock12" type="Bool">
+      <label>Reloj de 12 horas</label>
+      <default>false</default>
+    </entry>
+    <entry name="NoFlash" type="Bool">
+      <label>Sin destellos</label>
+      <default>false</default>
+    </entry>
+    <entry name="Flyers" type="Bool">
+      <label>Relojes voladores</label>
+      <default>true</default>
+    </entry>
+    <entry name="Jets" type="Bool">
+      <label>Jets a la hora en punto</label>
+      <default>true</default>
+    </entry>
+    <entry name="Oddities" type="Bool">
+      <label>Curiosidades</label>
+      <default>true</default>
+    </entry>
+    <entry name="Seasons" type="Bool">
+      <label>Adornos de temporada</label>
+      <default>true</default>
+    </entry>
     <!-- Reaccionar al ratón: clics y puntero (solo con el diseño de escritorio «Escritorio»). -->
     <entry name="Mouse" type="Bool">
       <label>Interactuar con el ratón</label>

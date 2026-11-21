@@ -16,17 +16,36 @@
 // Pixel City como fondo web (Lively Wallpaper en Windows u otro programa que acepte páginas).
 // Hace lo mismo que main.qml: dibuja las capas en un lienzo de pocas líneas y lo estira sin
 // suavizado. Los ajustes llegan por Lively (livelyPropertyListener) o por la dirección:
-// index.html?scene=beach&lines=360
+// index.html?scene=beach&lines=360&rotate=day&city=7&fps=8&clock12=1&noflash=1
 var SCENE_IDS = ["city", "beach", "mountain", "village", "farm", "cyber"];
 var LEVELS = [216, 270, 360, 540];
-var FPS = 12;
+var ROTATIONS = ["off", "hour", "day", "season"];
+var SPEEDS = [12, 8, 6];
+var OPTION_KEYS = ["noflash", "clock12", "flyers", "jets", "oddities", "seasons"];
 
 var q = new URLSearchParams(location.search);
 var cfg = {
   scene: SCENE_IDS.indexOf(q.get("scene")) >= 0 ? q.get("scene") : "city",
   lines: LEVELS.indexOf(+q.get("lines")) >= 0 ? +q.get("lines") : 270,
-  mouse: q.get("mouse") !== "0"
+  rotate: ROTATIONS.indexOf(q.get("rotate")) >= 0 ? q.get("rotate") : "off",
+  city: Math.max(0, Math.floor(+q.get("city") || 0)),
+  fps: SPEEDS.indexOf(+q.get("fps")) >= 0 ? +q.get("fps") : 12,
+  mouse: q.get("mouse") !== "0",
+  noflash: q.get("noflash") === "1",
+  clock12: q.get("clock12") === "1",
+  flyers: q.get("flyers") !== "0",
+  jets: q.get("jets") !== "0",
+  oddities: q.get("oddities") !== "0",
+  seasons: q.get("seasons") !== "0"
 };
+var builtScene = "";
+
+// Escenario que toca ahora (el elegido o el de la rotación) y ajustes que no regeneran la escena.
+function currentScene() { return sceneFor(cfg.rotate, cfg.scene, new Date()); }
+function applyOptions() {
+  if (world) setOptions(world, { noFlash: cfg.noflash, clock12: cfg.clock12, flyers: cfg.flyers, jets: cfg.jets,
+    oddities: cfg.oddities, seasons: cfg.seasons });
+}
 
 var out = document.getElementById("out"), octx = out.getContext("2d");
 var world = null, P = null, lw = 0, lh = 0, cloudOff = 0, lastStep = 0, paused = false;
@@ -51,7 +70,9 @@ function rebuild() {
   out.style.height = H + "px";
   out.style.width = Math.round(lw * H / lh) + "px";
   octx.imageSmoothingEnabled = false;
-  world = create(lw, lh, 20251115, { scene: cfg.scene });
+  builtScene = currentScene();
+  world = create(lw, lh, 20251115 + cfg.city, { scene: builtScene });
+  applyOptions();
   P = palette(world, hourNow());
   warmup(world, P.hour, P);
   cloudOff = 0;
@@ -82,15 +103,26 @@ function compose() {
   octx.drawImage(front, 0, 0);
 }
 
-// Personas, aves, autos: 12 veces por segundo.
-setInterval(function () {
+// Personas, aves, autos: 12 veces por segundo (u 8 o 6, según el ajuste de animación).
+function lifeTick() {
   if (!world || paused) return;
   var t = now();
   step(world, Math.min(t - lastStep, 1), P.hour, P);
   lastStep = t;
   drawLife(life.getContext("2d"), world, P, t);
   compose();
-}, Math.round(1000 / FPS));
+}
+var lifeTimer = setInterval(lifeTick, Math.round(1000 / cfg.fps));
+function setFps(f) {
+  cfg.fps = f;
+  clearInterval(lifeTimer);
+  lifeTimer = setInterval(lifeTick, Math.round(1000 / f));
+}
+
+// Con la rotación de escenarios, revisa cada minuto si ya toca otro.
+setInterval(function () {
+  if (world && cfg.rotate !== "off" && currentScene() !== builtScene) scheduleRebuild();
+}, 60000);
 
 // Luces, pantallas, anuncios, dirigible y olas: cuatro veces por segundo.
 setInterval(function () {
@@ -127,11 +159,15 @@ function scheduleRebuild() {
 
 // Lively: se llama al cargar con cada ajuste y después cada vez que el usuario cambia uno.
 function livelyPropertyListener(name, val) {
-  var old = cfg.scene + cfg.lines;
+  var old = cfg.scene + cfg.lines + cfg.rotate + cfg.city;
   if (name === "scene" && SCENE_IDS[val]) cfg.scene = SCENE_IDS[val];
   else if (name === "lines" && LEVELS[val]) cfg.lines = LEVELS[val];
+  else if (name === "rotate" && ROTATIONS[val]) cfg.rotate = ROTATIONS[val];
+  else if (name === "city") cfg.city = Math.max(0, Math.floor(+val || 0));
+  else if (name === "fps" && SPEEDS[val]) setFps(SPEEDS[val]);
   else if (name === "mouse") { cfg.mouse = !!val; if (world && !cfg.mouse) hover(world, null); }
-  if (cfg.scene + cfg.lines !== old) scheduleRebuild();
+  else if (OPTION_KEYS.indexOf(name) >= 0) { cfg[name] = !!val; applyOptions(); }
+  if (cfg.scene + cfg.lines + cfg.rotate + cfg.city !== old) scheduleRebuild();
 }
 
 // Lively avisa cuando pausa el fondo (ventana maximizada, juego a pantalla completa, batería).

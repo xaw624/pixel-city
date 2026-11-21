@@ -12,9 +12,31 @@ WallpaperItem {
     // 4×4 pixeles reales.
     readonly property int lh: Math.max(180, Math.min(720, configuration.Lines || 270))
     readonly property int lw: height > 0 ? Math.ceil(width / height * lh) : 0
-    readonly property int fps: 12
-    // Paisaje elegido en los ajustes: "city", "beach", "mountain", "village", "farm" o "cyber".
-    readonly property string sceneName: configuration.Scene || "city"
+    // Fluidez (ajuste "Animación"): 12, 8 o 6 cuadros por segundo para la gente y las aves.
+    readonly property int fps: [6, 8, 12].indexOf(configuration.Fps) >= 0 ? configuration.Fps : 12
+    // Paisaje: el elegido ("city", "beach", "mountain", "village", "farm" o "cyber") o, si el ajuste
+    // "Cambiar de escenario" no es "off", el que toque por hora, día o estación (ver Scene.sceneFor).
+    readonly property string rotateMode: configuration.Rotate || "off"
+    property string autoScene: ""
+    readonly property string sceneName: rotateMode === "off" ? (configuration.Scene || "city") : (autoScene || "city")
+    function updateAutoScene() { autoScene = Scene.sceneFor(rotateMode, configuration.Scene || "city", new Date()) }
+    onRotateModeChanged: updateAutoScene()
+    // Ciudad (ajuste "Ciudad n.º"): 0 es la original; cada número genera otra.
+    readonly property int citySeed: 20251115 + Math.max(0, configuration.City || 0)
+    onCitySeedChanged: rebuildTimer.restart()
+    // Ajustes que no regeneran la escena: destellos, reloj de 12 horas y qué grupos se muestran.
+    readonly property var options: ({
+        noFlash: !!configuration.NoFlash,
+        clock12: !!configuration.Clock12,
+        flyers: configuration.Flyers !== false,
+        jets: configuration.Jets !== false,
+        oddities: configuration.Oddities !== false,
+        seasons: configuration.Seasons !== false
+    })
+    onOptionsChanged: if (world) Scene.setOptions(world, options)
+    // Cuándo pausar: "active" (la ventana activa maximizada), "any" (cualquier ventana) o "never".
+    readonly property string pauseMode: configuration.Pause || "active"
+    onPauseModeChanged: updateCovered()
     readonly property bool mouseOn: configuration.Mouse !== false
     // Órdenes de los atajos de teclado: el comando pixelcity escribe "nombre marca" en la clave
     // Command por D-Bus (setWallpaper) y aquí se ejecuta cada vez que cambia.
@@ -39,7 +61,8 @@ WallpaperItem {
     function rebuild() {
         if (lw < 32 || lh < 32)
             return
-        world = Scene.create(lw, lh, 20251115, { scene: root.sceneName })
+        world = Scene.create(lw, lh, root.citySeed, { scene: root.sceneName })
+        Scene.setOptions(world, root.options)
         pal = Scene.palette(world, hourNow())
         Scene.warmup(world, pal.hour, pal)
         lastStep = now()
@@ -64,12 +87,25 @@ WallpaperItem {
         }
     }
 
-    // Solo cuenta la ventana activa: con "mostrar escritorio" o al hacer clic en el fondo no hay
-    // ventana activa, aunque otras sigan maximizadas detrás.
+    // Por omisión solo cuenta la ventana activa: con "mostrar escritorio" o al hacer clic en el fondo
+    // no hay ventana activa, aunque otras sigan maximizadas detrás. Con "any" cuenta cualquiera (y
+    // "mostrar escritorio" puede no reanudarla); con "never" no se pausa.
     function updateCovered() {
-        var A = TaskManager.AbstractTasksModel, idx = tasks.activeTask
-        covered = !!(idx && idx.valid && tasks.data(idx, A.IsActive)
-                     && (tasks.data(idx, A.IsMaximized) || tasks.data(idx, A.IsFullScreen)))
+        var A = TaskManager.AbstractTasksModel
+        if (pauseMode === "never") {
+            covered = false
+        } else if (pauseMode === "any") {
+            var any = false
+            for (var i = 0; i < tasks.count && !any; i++) {
+                var ix = tasks.makeModelIndex(i)
+                any = !!(tasks.data(ix, A.IsMaximized) || tasks.data(ix, A.IsFullScreen))
+            }
+            covered = any
+        } else {
+            var idx = tasks.activeTask
+            covered = !!(idx && idx.valid && tasks.data(idx, A.IsActive)
+                         && (tasks.data(idx, A.IsMaximized) || tasks.data(idx, A.IsFullScreen)))
+        }
     }
 
     TaskManager.VirtualDesktopInfo {
@@ -106,7 +142,15 @@ WallpaperItem {
     onLwChanged: rebuildTimer.restart()
     onLhChanged: rebuildTimer.restart()
     onSceneNameChanged: rebuildTimer.restart()
-    Component.onCompleted: rebuildTimer.restart()
+    Component.onCompleted: { updateAutoScene(); rebuildTimer.restart() }
+
+    // Revisa cada minuto si ya toca otro escenario.
+    Timer {
+        interval: 60000
+        repeat: true
+        running: root.rotateMode !== "off"
+        onTriggered: root.updateAutoScene()
+    }
 
     Timer {
         id: rebuildTimer

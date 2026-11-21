@@ -61,6 +61,11 @@ completamente por código (sin videos ni imágenes).
   ventana activa está maximizada o a pantalla completa.
 - **Definición ajustable**: en **Configurar escritorio y fondo** puedes elegir 216, 270, 360 o 540
   líneas. Con más líneas, los pixeles son más finos y hay más edificios; consume algo más de CPU.
+- **Más ajustes** en la misma ventana: cambiar de escenario solo (cada hora, cada día o según la
+  estación), **otra ciudad** (cada número arma una distinta; la 0 es la original), reloj de **12
+  horas**, **sin destellos** (sin relámpagos ni flash, para quien le molestan las luces intermitentes),
+  apagar relojes voladores, jets, curiosidades o adornos de temporada, fluidez de la animación (12, 8 o
+  6 cuadros por segundo) y cuándo pausar.
 
 | Mañana | Mediodía | Atardecer | Lluvia |
 |---|---|---|---|

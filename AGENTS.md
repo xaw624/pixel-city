@@ -78,7 +78,8 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
 (segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`, `cyber`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
 `rainbow`, `fireworks`, `aurora`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`), `jets=1`,
-`cmd=fuegos,ovni` (órdenes de los atajos), `date=10-31` (finge la fecha: temporadas, lluvias de estrellas, luna llena) y `odd=cat,whale,...` (saca curiosidades
+`cmd=fuegos,ovni` (órdenes de los atajos), `city=7`, `rotate=season`, `noflash=1`, `clock12=1`,
+`flyers=0`, `oddities=0`, `seasons=0`, `jets=0`, `date=10-31` (finge la fecha: temporadas, lluvias de estrellas, luna llena) y `odd=cat,whale,...` (saca curiosidades
 con `forceOddity`: `cat`, `opossum`, `nessie`, `whale`, `sat`, `starlink`, `balloon`, `shower`, `aurora`, `wolf`).
 
 ## Trampas conocidas
@@ -137,7 +138,17 @@ con `forceOddity`: `cat`, `opossum`, `nessie`, `whale`, `sat`, `starlink`, `ball
   que ya tienen Pixel City, y `main.qml` reacciona en `onOrderChanged`. Probar:
   `preview.html?live=1&cmd=fuegos` (el arnés también acepta clics) o `pixelcity fuegos` en el escritorio.
 - Jets de la hora en punto: `w.jets`, aparte de los turnos (`stepJets`); `preview.html?jets=1`.
-- La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
+- La ciudad usa una semilla fija (`20251115` en `main.qml`) más el ajuste "Ciudad n.º" (`City`, 0 por
+  omisión): misma ciudad en cada reinicio, y la 0 es la original.
+- Ajustes (`contents/config/main.xml`, `config.qml`, y los mismos en `lively/LivelyProperties.json`):
+  `Scene`, `Rotate` (`off`, `hour`, `day`, `season`; lo resuelve `sceneFor`, que `main.qml` revisa cada
+  minuto), `City`, `Lines`, `Fps` (12, 8 o 6), `Pause` (`active`, `any`, `never`; `any` puede no reanudar
+  con "mostrar escritorio"), `Mouse`, y los que no regeneran la escena y pasan por `setOptions`:
+  `NoFlash` (sin relámpagos ni flash, chispas y luces sin parpadeo), `Clock12` (reloj de 12 horas en
+  `clockDots`, sin cero a la izquierda pero con el mismo ancho), `Flyers`, `Jets`, `Oddities` y
+  `Seasons` (los apagan; las órdenes de los atajos funcionan igual). `noFlash` y `clock12` viven en la
+  global `OPT` porque `drawPerson` y `clockDots` no reciben el mundo. Al agregar un ajuste, ponlo en los
+  tres lugares (y en `index.html` de Lively).
 - Al tocar lo común, verifica que la ciudad no cambie: renderiza `drawSky`/`drawCity`/`drawFront`
   con hora y `t` fijos antes y después, y compara con `magick compare -metric AE` (debe dar 0).
 - Playa: sin nieve (`w.noSnow`), el sol recorre `w.span` para no esconderse tras el cabo y los
