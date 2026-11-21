@@ -75,7 +75,9 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
 (segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`, `cyber`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
-`rainbow`, `fireworks`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`), `jets=1`.
+`rainbow`, `fireworks`, `aurora`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`), `jets=1`,
+`date=10-31` (finge la fecha: temporadas, lluvias de estrellas, luna llena) y `odd=cat,whale,...` (saca curiosidades
+con `forceOddity`: `cat`, `opossum`, `nessie`, `whale`, `sat`, `starlink`, `balloon`, `shower`, `aurora`, `wolf`).
 
 ## Trampas conocidas
 
@@ -106,8 +108,23 @@ Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, 
   `banner` (avioneta con cartel, de día; en la playa alterna con helados), `duster` (fumigadora, solo
   campo), `skywrite` (hora con humo, de día despejado), `balloon` (globo, de día sin lluvia), `heli`
   (ciudad, playa, ciberpunk), `holo` (dron con holograma, solo ciberpunk), `swarm` (drones de noche) y
-  `sleigh` (trineo, pueblo del 1 de diciembre al 6 de enero). Los que remolcan cartel usan
+  `sleigh` (trineo, pueblo del 1 de diciembre al 6 de enero) y `ufo` (ovni de madrugada, sale la mitad de
+  las veces que le toca; flota con un rayo que lleva la hora y cae sobre `w.sky`; en el campo levanta una
+  vaca con `c.lift` y la devuelve). Los que remolcan cartel usan
   `drawTowedBanner`; los que deben quedar detrás de los edificios se recortan con `skyPx`/`skyDot`.
+- Gente con celular (`p.phone`, camina más lento; de noche le alumbra la cara y a veces saca una foto con
+  flash) o linterna (`p.torch`, solo de noche y sobre todo fuera de la ciudad): se decide en `spawnPerson`
+  según `w.hour`; el dibujo está en `drawPhone` y `drawTorch`.
+- Curiosidades (sección "curiosidades" de `scene.js`, simuladas en `stepOddities`): satélites y trenes de
+  satélites (`w.sats`), lluvias de estrellas en sus fechas (`SHOWERS`, salen del mismo punto), aurora en montaña y
+  pueblo (`w.aurora`, noches frías, capa ambiental recortada con `w.sky`), globos de niños que se escapan
+  (`p.balloon`, `w.balloons`), ciclistas y repartidores (`p.bike`, `drawBiker`), patinetas (`p.skate`), gato negro y
+  tlacuache (`w.odd`, `drawOdd`; el gato en la ciudad camina por el barandal, el tlacuache hurga junto a las bancas
+  y se hace el muerto), búho y lobo en la montaña (el lobo, con luna llena según `moonPhase`), monstruo del lago
+  (`w.nessie`) y ballena en la playa (`w.whale`). Temporadas con `season(w)`: calabazas (25–31 oct), fantasmitas
+  (31 oct) y papel picado, cempasúchil y velas (28 oct–2 nov), solo en ciudad y campo; el pueblo es navideño todo
+  el año. Usa `today(w)` en vez de `new Date()` para que `date=` funcione. Nada de esto toca la semilla ni las
+  capas fijas.
 - Jets de la hora en punto: `w.jets`, aparte de los turnos (`stepJets`); `preview.html?jets=1`.
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
 - Al tocar lo común, verifica que la ciudad no cambie: renderiza `drawSky`/`drawCity`/`drawFront`

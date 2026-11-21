@@ -285,13 +285,18 @@ function initLife(w, R) {
     w.drops = [];
     w.splashes = [];
     w.meteors = [];
+    w.sats = [];               // satélites y trenes de satélites (ver stepOddities)
+    w.balloons = [];           // globos que se le escaparon a alguien
+    w.odd = [];                // gato negro y tlacuache
+    w.aurora = w.auroraTarget = 0;
+    w.nessie = w.whale = null;
     // Reloj volador (ver FLYERS): empieza el dirigible, a media pantalla.
     w.flyer = { kind: "blimp", x: Math.round(W * (0.2 + R() * 0.3)), y: ri(R, 16, 34), dir: 1, speed: 5, m: 24 };
     w.flyerIdx = 0;
     w.jets = null;             // jets de la hora en punto (ver stepJets)
     w.jetHour = -1;
     w.timers = { flyer: 60, person: 0, flock: 6, gull: 12, car: 0, boat: 15, plane: 25, meteor: 150, pigeon: 5, weather: 900 + R() * 1200,
-        fog: 20, bolt: 8, show: 40, rocket: 0 };
+        fog: 20, bolt: 8, show: 40, rocket: 0, sat: 40, balloon: 30, odd: 20, aurora: 30, nessie: 120, whale: 60 };
     w.rain = 0;
     w.rainTarget = 0;
     w.rainChance = 0.18;
@@ -1099,10 +1104,25 @@ function spawnPerson(w, onScreen) {
     var kind = r < (dawn ? 0.3 : 0.08) ? "jog" : (r < (dawn ? 0.42 : 0.18) ? "dog" : (r < (dawn ? 0.46 : 0.26) ? "family" : "walk"));
     var p = newPerson(w, x, y, dir, kind === "jog" ? 20 + R() * 5 : 7 + R() * 5, false);
     p.jog = kind === "jog";
+    // Algunos van viendo el celular (y caminan más lento); de noche, en lugares oscuros, otros
+    // alumbran el camino con una linterna.
+    var h = w.hour, night = h >= 19.5 || h < 6, sc = w.scene, town = sc === "city" || sc === "cyber";
+    // Ciclistas (en la ciudad, repartidores con su caja) y alguno en patineta.
+    if (kind === "walk" && sc !== "beach" && sc !== "village" && R() < 0.08) {
+        p.bike = true; p.speed = 26 + R() * 6; p.frame = rgb(pick(R, CARS));
+        if (town && R() < 0.6) p.box = rgb(pick(R, BOXES));
+    } else if (kind === "walk" && town && R() < 0.05) { p.skate = true; p.speed = 16 + R() * 4; }
+    if (p.bike || p.skate) { p.umbrella = null; p.jog = false; }
+    else if (!p.jog && R() < (night ? 0.22 : 0.14)) { p.phone = true; p.speed *= 0.75; }
+    else if (!p.jog && night && !p.umbrella && R() < (w.scene === "city" || w.scene === "cyber" ? 0.04 : 0.35)) p.torch = true;
+    p.seed = Math.floor(R() * 1000);
     if (kind === "dog") p.dog = { col: rgb(DOGS[Math.floor(R() * DOGS.length)]) };
     w.people.push(p);
     if (kind === "family") {
         var kid = newPerson(w, x - dir * 7, y + 1, dir, p.speed, true);
+        // De día, algunos niños llevan globo; la noche del 31 de octubre salen de fantasmita.
+        if (h >= 8 && h < 19 && R() < 0.4) kid.balloon = rgb(pick(R, TOY_BALLOONS));
+        if (season(w).boo && (h >= 17 || h < 1)) kid.ghost = true;
         w.people.push(kid);
     }
 }
@@ -1269,7 +1289,7 @@ function step(w, dt, hour, P) {
             }
             for (j = 0; j < w.people.length; j++) {
                 var q = w.people[j];
-                var near = Math.abs(q.x - g.x) < (q.jog ? 14 : 9);
+                var near = Math.abs(q.x - g.x) < (q.jog || q.bike ? 14 : 9);
                 if (near && (g.rail ? R() < 0.02 : Math.abs(q.y - g.y) < 7)) {
                     g.state = "fly";
                     g.vx = (q.x < g.x ? 1 : -1) * (22 + R() * 14);
@@ -1404,10 +1424,17 @@ function step(w, dt, hour, P) {
     stepJets(w, dt, hour, R);
 
     // Estrellas fugaces.
+    // En las noches de lluvia de estrellas caen muchas, todas desde el mismo punto del cielo.
     T.meteor -= dt;
     if (T.meteor <= 0) {
-        T.meteor = 200 + R() * 300;
-        if (P.night > 0.8 && P.rain < 0.1) w.meteors.push({ x: R() * W, y: 5 + R() * 40, vx: (R() < 0.5 ? -1 : 1) * 70, vy: 30, life: 0.8 });
+        var shower = (hour >= 21 || hour < 5) && showerNight(w);
+        T.meteor = shower ? 2 + R() * 8 : 200 + R() * 300;
+        if (P.night > 0.8 && P.rain < 0.1) {
+            if (shower) {
+                var mx = R() * W, my = 5 + R() * w.base * 0.45, ddx = mx - W * 0.62, ddy = my + 20, dl = Math.sqrt(ddx * ddx + ddy * ddy);
+                w.meteors.push({ x: mx, y: my, vx: ddx / dl * 90, vy: ddy / dl * 90, life: 0.5 + R() * 0.4 });
+            } else w.meteors.push({ x: R() * W, y: 5 + R() * 40, vx: (R() < 0.5 ? -1 : 1) * 70, vy: 30, life: 0.8 });
+        }
     }
     for (i = w.meteors.length - 1; i >= 0; i--) {
         var m = w.meteors[i];
@@ -1440,6 +1467,8 @@ function step(w, dt, hour, P) {
         if (w.splashes[i].life <= 0) w.splashes.splice(i, 1);
     }
 
+    stepOddities(w, dt, hour, P);
+
     var S = SCENES[w.scene];
     if (S && S.step) S.step(w, dt, hour, P);
 }
@@ -1465,7 +1494,7 @@ function makeBolt(w, R) {
 }
 
 // Fija un escenario de clima (para los arneses de prueba y capturas). kind: "clear", "rain",
-// "storm", "snow", "fog", "rainbow", "fireworks". Después de llamarla el clima ya no cambia solo.
+// "storm", "snow", "fog", "rainbow", "fireworks", "aurora". Después de llamarla el clima ya no cambia solo.
 function setWeather(w, kind) {
     w.lock = true;
     w.timers.weather = 1e9;
@@ -1475,16 +1504,19 @@ function setWeather(w, kind) {
     w.rainbow = w.wet = 0;
     w.snowCover = w.minSnow || 0;
     w.show = 0;
+    w.aurora = w.auroraTarget = 0;
     if (kind === "rain") w.rain = w.rainTarget = 0.8;
     else if (kind === "storm") { w.rain = w.rainTarget = 1; w.storm = true; w.timers.bolt = 0.5; }
     else if (kind === "snow") { w.rain = w.rainTarget = 0.75; w.snow = true; w.snowCover = 1; }
     else if (kind === "fog") w.fog = w.fogTarget = 0.9;
     else if (kind === "rainbow") { w.rain = 0.15; w.wet = 1; w.rainbow = 1; }
     else if (kind === "fireworks") { w.show = 1e9; w.timers.rocket = 0; }
+    else if (kind === "aurora") w.aurora = w.auroraTarget = 1;
 }
 
 // Simula un rato para que la escena no arranque vacía.
 function warmup(w, hour, P) {
+    w.hour = hour;
     for (var i = 0; i < 6; i++) spawnPerson(w, true);
     for (i = 0; i < 120; i++) step(w, 0.5, hour, P);
 }
@@ -1499,9 +1531,10 @@ function spr(ctx, x0, y0, dir, c, r, cw, ch, col) {
 }
 
 function drawPerson(ctx, p, P) {
+    if (p.bike) return drawBiker(ctx, p, P);
     var X = Math.round(p.x) - 2, d = p.dir;
-    var hgt = p.kid ? 9 : 13, Y = Math.round(p.y) - hgt + 1;
-    var f = Math.floor(p.dist / (p.jog ? 4 : 3)) % 4;
+    var hgt = p.kid ? 9 : 13, Y = Math.round(p.y) - hgt + 1 - (p.skate ? 2 : 0);
+    var f = p.skate ? 0 : Math.floor(p.dist / (p.jog ? 4 : 3)) % 4;
     // Los colores solo cambian cuando cambia la paleta (cada ~30 s).
     if (p.cP !== P) {
         p.cP = P;
@@ -1509,6 +1542,16 @@ function drawPerson(ctx, p, P) {
     }
     var skin = p.cc[0], hair = p.cc[1], top = p.cc[2], bot = p.cc[3], shoe = p.cc[4];
 
+    if (p.kid && p.balloon) drawToyBalloon(ctx, d > 0 ? X + 4 : X, Y + 4, p.balloon, P, Math.round(Math.sin(p.dist * 0.3)));
+    if (p.kid && p.ghost) {
+        // Sábana blanca con dos agujeros y el borde que ondea.
+        var sh = css(mix(lit([238, 238, 244], P), [226, 226, 238], 0.35));
+        spr(ctx, X, Y, d, 1, 0, 3, 1, sh);
+        spr(ctx, X, Y, d, 0, 1, 5, 7, sh);
+        spr(ctx, X, Y, d, 2, 2, 1, 1, "#18181f"); spr(ctx, X, Y, d, 4, 2, 1, 1, "#18181f");
+        for (var gk = 0; gk < 5; gk += 2) spr(ctx, X, Y, d, gk + (f % 2), 8, 1, 1, sh);
+        return;
+    }
     if (p.kid) {
         if (p.scarf) {
             var kc = css(lit(p.scarf, P));
@@ -1540,8 +1583,9 @@ function drawPerson(ctx, p, P) {
     // Torso y brazos.
     spr(ctx, X, Y, d, 1, 3, 3, 5, top);
     if (p.style === 1) spr(ctx, X, Y, d, 1, 3, 1, 2, hair);
-    var swing = p.umbrella ? 1 : [1, 0, -1, 0][f];
-    if (swing === 1) { spr(ctx, X, Y, d, 4, 4, 1, 2, top); spr(ctx, X, Y, d, 4, 6, 1, 1, skin); }
+    var swing = p.umbrella || p.torch ? 1 : (p.phone ? 2 : [1, 0, -1, 0][f]);
+    if (swing === 2) drawPhone(ctx, p, X, Y, d, P, top, skin);
+    else if (swing === 1) { spr(ctx, X, Y, d, 4, 4, 1, 2, top); spr(ctx, X, Y, d, 4, 6, 1, 1, skin); }
     else if (swing === -1) { spr(ctx, X, Y, d, 0, 4, 1, 2, top); spr(ctx, X, Y, d, 0, 6, 1, 1, skin); }
     else spr(ctx, X, Y, d, 3, 7, 1, 1, skin);
     if (p.bag) spr(ctx, X, Y, d, 0, 6, 1, 2, css(lit([120, 80, 60], P)));
@@ -1580,6 +1624,11 @@ function drawPerson(ctx, p, P) {
         spr(ctx, X, Y, d, 2, 9, 2, 3, leg);
         spr(ctx, X, Y, d, 2, 12, 2, 1, shoe);
     }
+    if (p.skate) {
+        rect(ctx, X - 1, Y + 13, 7, 1, css(lit([170, 60, 60], P)));
+        rect(ctx, X, Y + 14, 1, 1, css(lit([230, 220, 190], P)));
+        rect(ctx, X + 4, Y + 14, 1, 1, css(lit([230, 220, 190], P)));
+    }
     if (p.umbrella) {
         // El de neón brilla con su propia luz.
         var uc = p.neon ? mix(p.umbrella, lit(p.umbrella, P), 0.5) : lit(p.umbrella, P);
@@ -1593,6 +1642,7 @@ function drawPerson(ctx, p, P) {
             ctx.globalAlpha = 1;
         }
     }
+    if (p.torch) drawTorch(ctx, p, X, Y, d, P, f);
     if (p.dog) {
         var dc = css(lit(p.dog.col, P)), dx = X - d * 8, dy = Math.round(p.y) - 3;
         var df = Math.floor(p.dist / 2) % 2;
@@ -1605,6 +1655,47 @@ function drawPerson(ctx, p, P) {
         rect(ctx, d > 0 ? dx + 5 : dx - 3, dy - 1, 3, 1, css(lit([60, 60, 70], P)));
         ctx.globalAlpha = 1;
     }
+}
+
+// Brazo doblado con el celular frente a la cara. De noche la pantalla le ilumina la cara y, de vez
+// en cuando, se toma una foto con flash.
+function drawPhone(ctx, p, X, Y, d, P, top, skin) {
+    var night = P.night > 0.4;
+    spr(ctx, X, Y, d, 4, 5, 1, 1, top);
+    spr(ctx, X, Y, d, 4, 4, 1, 1, skin);
+    spr(ctx, X, Y, d, 4, 3, 1, 1, night ? "#b4d2ff" : css(lit([36, 36, 46], P)));
+    if (!night) return;
+    ctx.globalAlpha = 0.22 * P.night;
+    spr(ctx, X, Y, d, 2, 1, 2, 2, "#9cc4ff");
+    // Destello de una décima de segundo, más o menos cada medio minuto.
+    if (hash2(Math.floor(p.dist * 2), p.seed) < 0.003) {
+        var fx = d > 0 ? X + 4 : X;
+        ctx.globalAlpha = 0.2;
+        rect(ctx, fx - 4, Y - 1, 9, 9, "#ffffff");
+        ctx.globalAlpha = 0.6;
+        rect(ctx, fx - 1, Y + 2, 3, 3, "#ffffff");
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Linterna en la mano de enfrente: de noche, un haz que baja hasta el piso y un charco de luz.
+function drawTorch(ctx, p, X, Y, d, P, f) {
+    spr(ctx, X, Y, d, 5, 6, 1, 1, css(lit([70, 70, 80], P)));
+    if (P.night < 0.4) return;
+    var hx = d > 0 ? X + 6 : X - 2, hy = Y + 6, gy = Math.round(p.y), sway = f % 2;
+    ctx.fillStyle = "#fff0c0";
+    for (var k = 0; k < 16; k++) {
+        var x = hx + d * k, y0 = hy + Math.round(k * 0.2), y1 = Math.min(gy, hy + Math.round(k * (0.6 + sway * 0.05)));
+        ctx.globalAlpha = 0.2 * P.night * (1 - k / 22);
+        ctx.fillRect(x, y0, 1, y1 - y0 + 1);
+    }
+    ctx.globalAlpha = 0.22 * P.night;
+    var cx = hx + d * (12 + sway);
+    ctx.fillRect(cx - 5, gy, 11, 1);
+    ctx.fillRect(cx - 3, gy - 1, 7, 3);
+    ctx.globalAlpha = 0.9;
+    rect(ctx, hx, hy, 1, 1, "#fff8dc");
+    ctx.globalAlpha = 1;
 }
 
 function drawPigeon(ctx, g, P, t) {
@@ -1632,6 +1723,7 @@ function drawAmbient(ctx, w, P, t) {
     var W = w.W, i, j;
     ctx.clearRect(0, 0, W, w.H);
     var tick = Math.floor(t * 4);
+    if (w.aurora > 0.02) drawAurora(ctx, w, P, t);
 
     for (i = 0; i < w.ads.length; i++) drawAdFace(ctx, w.ads[i], P, t);
 
@@ -1717,6 +1809,7 @@ function drawAmbient(ctx, w, P, t) {
         ctx.globalAlpha = 1;
     }
 
+    drawOddAmbient(ctx, w, P, t);
     var S = SCENES[w.scene];
     if (S && S.ambient) S.ambient(ctx, w, P, t);
     if (w.noWater) return;
@@ -1765,13 +1858,14 @@ function drawLife(ctx, w, P, t) {
 
     // Estrellas fugaces.
     for (i = 0; i < w.meteors.length; i++) {
-        var m = w.meteors[i], sx = m.vx > 0 ? -1 : 1;
+        var m = w.meteors[i], ml = Math.sqrt(m.vx * m.vx + m.vy * m.vy), ux = m.vx / ml, uy = m.vy / ml;
         for (j = 0; j < 6; j++) {
             ctx.globalAlpha = (1 - j / 6) * clamp(m.life * 2, 0, 1);
-            rect(ctx, m.x + sx * j * 2, m.y - j, 2, 1, "#fff8e0");
+            skyDot(ctx, w, m.x - ux * j * 2, m.y - uy * j * 2, "#fff8e0", Math.abs(ux) > 0.7 ? 2 : 1);
         }
     }
     ctx.globalAlpha = 1;
+    drawSats(ctx, w, P, t);
 
     // Fuegos artificiales y relámpagos: solo donde se ve cielo (detrás de los edificios).
     for (i = 0; i < w.rockets.length; i++) {
@@ -1826,6 +1920,7 @@ function drawLife(ctx, w, P, t) {
         }
     }
 
+    if (w.nessie) drawNessie(ctx, w, w.nessie, P, t);
     // Barcos.
     for (i = 0; i < w.boats.length; i++) drawBoat(ctx, w.boats[i], P, t);
     var S = SCENES[w.scene];
@@ -1863,11 +1958,18 @@ function drawLife(ctx, w, P, t) {
     }
     for (i = 0; i < w.people.length; i++) ground.push({ y: w.people[i].y, p: w.people[i] });
     if (w.critters) for (i = 0; i < w.critters.length; i++) ground.push({ y: w.critters[i].y, c: w.critters[i] });
+    for (i = 0; i < w.odd.length; i++) ground.push({ y: w.odd[i].y, o: w.odd[i] });
     ground.sort(function (a, b) { return a.y - b.y; });
     for (i = 0; i < ground.length; i++) {
         if (ground[i].p) drawPerson(ctx, ground[i].p, P);
+        else if (ground[i].o) drawOdd(ctx, ground[i].o, P, t);
         else if (ground[i].c) CRITTERS[ground[i].c.kind](ctx, ground[i].c, P, t);
         else drawPigeon(ctx, ground[i].g, P, t);
+    }
+
+    for (i = 0; i < w.balloons.length; i++) {
+        var tb = w.balloons[i];
+        drawToyBalloon(ctx, tb.x, tb.y, tb.col, P, Math.round(Math.sin(tb.ph * 2)));
     }
 
     // Lluvia y nieve.
@@ -2170,7 +2272,7 @@ var DIGITS = ["111101101101111", "010110010010111", "111001111100111", "11100111
 // pueden salir ahora. Cada tipo tiene ok(w, hora) (si puede salir), make(w, dir, R) (el objeto),
 // draw(ctx, f, P, t, w) y opcionales step(f, w, dt, R) (lo mueve; true al terminar; sin él cruza en
 // línea recta y termina a f.m pixeles fuera de la pantalla) y slow (va en la capa ambiental, 4 fps).
-var FLYER_ORDER = ["blimp", "banner", "duster", "skywrite", "balloon", "heli", "holo", "swarm", "sleigh"];
+var FLYER_ORDER = ["blimp", "banner", "duster", "skywrite", "balloon", "heli", "holo", "swarm", "sleigh", "ufo"];
 var FLYERS = {
     blimp: {
         slow: true,
@@ -2233,6 +2335,13 @@ var FLYERS = {
             return { x: d > 0 ? -2 : w.W + 2, y: 10 + R() * 16, dir: d, speed: 12 + R() * 2, m: 31 + BANNER_ROPE + BANNER_W + 2 };
         },
         draw: drawSleigh
+    },
+    ufo: {
+        // De madrugada y sin mucha lluvia; ni siempre que le toca, para que sorprenda.
+        ok: function (w, h) { return (h >= 21 || h < 4.5) && w.rain < 0.3 && Math.random() < 0.5; },
+        make: makeUfo,
+        step: stepUfo,
+        draw: drawUfo
     }
 };
 
@@ -2696,6 +2805,105 @@ function drawSwarm(ctx, f, P, t, w) {
         skyDot(ctx, w, x, y, c);
     }
     ctx.globalAlpha = 1;
+}
+
+// Ovni: llega dando tirones, se queda flotando con un rayo de luz que lleva la hora y se va
+// disparado. En el campo el rayo levanta una vaca un rato y la devuelve con cuidado.
+// d domo, m borde, s panza, e emisor.
+var UFO = [".....ddddd.....", "....ddddddd....", "..mmmmmmmmmmm..", "mmmmmmmmmmmmmmm", "..sssssssssss..", ".....eeeee....."];
+var UFO_PAL = { d: [150, 230, 200], m: [176, 184, 200], s: [96, 100, 120], e: [190, 255, 210] };
+var UFO_HOVER = 14, UFO_BEAM = 1.2;
+function makeUfo(w, d, R) {
+    var f = { x: d > 0 ? -10 : w.W + 10, y: 10 + R() * 14, dir: d, st: "in", tm: 0, hops: 0, beam: 0, cow: null };
+    var cows = (w.critters || []).filter(function (c) { return c.kind === "cow"; });
+    if (cows.length) {
+        f.cow = cows[Math.floor(R() * cows.length)];
+        f.tx = clamp(Math.round(f.cow.x), 12, w.W - 12);
+        f.ty = Math.round(12 + R() * 14);
+    } else {
+        // Flota sobre lo más bajo de la silueta, para que el rayo tenga dónde caer.
+        var best = -1;
+        for (var i = 0; i < 10; i++) {
+            var x = Math.round(w.W * (0.15 + R() * 0.7));
+            if (best < 0 || w.sky[x] > w.sky[best]) best = x;
+        }
+        f.tx = best;
+        f.ty = clamp(w.sky[best] - 42, 8, 40);
+    }
+    f.hop = { x: f.x, y: f.y };
+    return f;
+}
+function stepUfo(f, w, dt, R) {
+    f.tm += dt;
+    if (f.st === "in") {
+        // Tres o cuatro tirones hacia el punto de destino, con pausas cortas entre uno y otro.
+        if (f.tm > 0.9) {
+            f.tm = 0;
+            f.hops++;
+            var last = f.hops >= 4, k = last ? 1 : 0.3 + R() * 0.3;
+            f.hop = { x: f.x + (f.tx - f.x) * k, y: last ? f.ty : f.ty + (R() - 0.5) * 20 };
+        }
+        f.x += (f.hop.x - f.x) * Math.min(1, dt * 9);
+        f.y += (f.hop.y - f.y) * Math.min(1, dt * 9);
+        if (f.hops >= 4 && Math.abs(f.x - f.tx) < 0.5) { f.st = "hover"; f.tm = 0; f.x = f.tx; f.y = f.ty; }
+    } else if (f.st === "hover") {
+        f.beam = clamp(Math.min(f.tm, UFO_HOVER - f.tm) / UFO_BEAM, 0, 1);
+        // La vaca sube despacio, se queda un rato en el aire y baja.
+        if (f.cow) f.cow.lift = Math.round(clamp(Math.min(f.tm - UFO_BEAM, UFO_HOVER - UFO_BEAM - f.tm) * 4, 0, 14));
+        if (f.tm >= UFO_HOVER) {
+            if (f.cow) f.cow.lift = 0;
+            f.st = "out"; f.tm = 0; f.beam = 0; f.vx = f.dir * 20; f.vy = -6;
+        }
+    } else {
+        f.vx *= Math.pow(6, dt); f.vy *= Math.pow(5, dt);
+        f.x += f.vx * dt; f.y += f.vy * dt;
+        return f.x < -20 || f.x > w.W + 20 || f.y < -10;
+    }
+    return false;
+}
+function drawUfo(ctx, f, P, t, w) {
+    var bob = f.st === "hover" ? Math.round(Math.sin(t * 1.6)) : 0;
+    var cx = Math.round(f.x), y = Math.round(f.y) + bob, x = cx - 7, night = P.night > 0.4, i;
+    var green = [170, 255, 196];
+    if (f.beam > 0) {
+        // Rayo: cono que se abre hasta 33 de ancho y baja al techo, al cerro o a la vaca.
+        var by = y + 6, len = f.beam;
+        for (var c = -16; c <= 16; c++) {
+            var col = cx + c;
+            if (col < 0 || col >= w.W) continue;
+            var start = Math.max(0, Math.abs(c) * 2 - 6), end = f.cow ? Math.round(f.cow.y) + 1 : w.sky[col];
+            end = Math.max(end, by + 20);
+            var y0 = by + start, y1 = by + Math.round((end - by) * len);
+            if (y1 <= y0) continue;
+            ctx.globalAlpha = 0.13 + (Math.abs(c) < 3 ? 0.06 : 0);
+            rect(ctx, col, y0, 1, y1 - y0, css(green));
+        }
+        // Bandas que bajan por el rayo.
+        ctx.fillStyle = css(green);
+        var bh = (f.cow ? Math.round(f.cow.y) : w.sky[clamp(cx, 0, w.W - 1)]) - by;
+        for (var r = Math.floor(t * 14) % 6; r < bh * len; r += 6) {
+            var half = Math.min(16, 3 + Math.floor(r / 2));
+            ctx.globalAlpha = 0.12;
+            ctx.fillRect(cx - half, by + r, half * 2 + 1, 1);
+        }
+        // La hora dentro del rayo.
+        ctx.globalAlpha = 0.85 * len;
+        ctx.fillStyle = "#e6ffec";
+        var dots = clockDots(t);
+        for (i = 0; i < dots.length; i++) ctx.fillRect(cx - 8 + dots[i][0], by + 12 + dots[i][1], 1, 1);
+        ctx.globalAlpha = 1;
+    }
+    if (night) {
+        ctx.globalAlpha = 0.16;
+        ell(ctx, cx, y + 3, 10, 5, css(green));
+        ctx.globalAlpha = 1;
+    }
+    sprite(ctx, UFO, x, y, false, UFO_PAL, function (k) { return css(night ? k : lit(k, P)); });
+    rect(ctx, x + 6, y, 2, 1, "#e8fff4");                           // brillo del domo
+    // Luces del borde que corren de un lado a otro.
+    var LC = ["#ff5f6d", "#ffd35f", "#5ff2ff"], ph = Math.floor(t * 8);
+    for (i = 0; i < 5; i++) rect(ctx, x + 1 + i * 3, y + 3, 1, 1, LC[(i + ph) % 3]);
+    if (f.beam > 0 || Math.floor(t * 3) % 2) rect(ctx, x + 5, y + 5, 5, 1, "#f0fff4");
 }
 
 function drawBlimp(ctx, b, P, t) {
@@ -4944,6 +5152,7 @@ function stepFarm(w, dt, hour, P) {
         var c = w.critters[i];
         c.tm -= dt;
         if (c.kind === "cow") {
+            if (c.lift) { c.state = "stand"; continue; }
             if (night) { c.state = "lie"; continue; }
             if (c.state === "lie") c.state = "graze";
             if (c.tm <= 0) {
@@ -5025,7 +5234,14 @@ function drawFarmVehicle(ctx, car, P) {
 
 // Vaca de perfil: pastando, parada, caminando o echada (de noche).
 function drawCow(ctx, c, P, t) {
-    var d = c.dir, x0 = Math.round(c.x) - 6, y0 = Math.round(c.y) - 9;
+    // Si el ovni la levanta, sube y da vueltas despacio en el aire.
+    var lift = c.lift || 0, d = lift > 3 ? (Math.floor(t * 0.8 + c.spots) % 2 ? 1 : -1) : c.dir;
+    var x0 = Math.round(c.x) - 6, y0 = Math.round(c.y) - 9 - lift;
+    if (lift) {
+        ctx.globalAlpha = 0.25;
+        rect(ctx, Math.round(c.x) - 5, Math.round(c.y), 11, 1, "#101018");
+        ctx.globalAlpha = 1;
+    }
     var base = c.brown ? [150, 96, 60] : [240, 238, 232], patch = c.brown ? [240, 236, 228] : [40, 38, 42];
     var B = css(lit(base, P)), Pt = css(lit(patch, P)), pink = css(lit([230, 160, 160], P)), dark = css(lit([40, 36, 40], P));
     function px(cx, r, cw, ch, col) { rect(ctx, d > 0 ? x0 + cx : x0 + 12 - (cx + cw - 1), y0 + r, cw, ch, col); }
@@ -5533,6 +5749,575 @@ function drawHoverCar(ctx, car, P) {
     rect(ctx, bx(9, 1), y - 4, 1, 1, "#fff4c0");
     rect(ctx, bx(-9, 1), y - 4, 1, 1, "#ff3040");
     if (nk > 0.3) { ctx.globalAlpha = 0.22; rect(ctx, bx(10, 12), y - 4, 12, 1, "#fff4c0"); ctx.globalAlpha = 1; }
+}
+
+// ---------- curiosidades ----------
+// Cosas que aparecen de vez en cuando: satélites, lluvias de estrellas, aurora boreal, globos que se
+// escapan, el gato negro, el tlacuache, el búho, el lobo, el monstruo del lago, la ballena y los adornos
+// de Halloween y Día de Muertos. Todo usa Math.random o hash2 (nunca la semilla de la ciudad) y se dibuja
+// en las capas de vida o ambiente, así que la ciudad, el cielo y el primer plano no cambian.
+
+// Fecha de hoy; w.fakeDate (milisegundos) la fija en los arneses de prueba.
+function today(w) { return w.fakeDate ? new Date(w.fakeDate) : new Date(); }
+
+// Fase de la luna (0 nueva, 0.5 llena), contada desde una luna nueva conocida.
+function moonPhase(d) {
+    var syn = 29.530588853, days = (d.getTime() - Date.UTC(2000, 0, 6, 18, 14)) / 86400000;
+    return ((days % syn) + syn) % syn / syn;
+}
+
+// Lluvias de estrellas [mes, primer día, último día]: Cuadrántidas, Perseidas, Oriónidas, Leónidas, Gemínidas.
+var SHOWERS = [[0, 3, 4], [7, 11, 13], [9, 21, 22], [10, 17, 18], [11, 13, 14]];
+function showerNight(w) {
+    if (w.forceShower) return true;
+    var d = today(w), m = d.getMonth(), day = d.getDate();
+    for (var i = 0; i < SHOWERS.length; i++) if (SHOWERS[i][0] === m && day >= SHOWERS[i][1] && day <= SHOWERS[i][2]) return true;
+    return false;
+}
+
+// Temporadas: calabazas del 25 al 31 de octubre (y niños disfrazados de fantasma la noche del 31),
+// papel picado, cempasúchil y velas del 28 de octubre al 2 de noviembre.
+function season(w) {
+    var d = today(w), m = d.getMonth(), day = d.getDate();
+    return { halloween: m === 9 && day >= 25, boo: m === 9 && day === 31, muertos: (m === 9 && day >= 28) || (m === 10 && day <= 2) };
+}
+
+var AURORA = { mountain: 1, village: 1 };
+var TOY_BALLOONS = ["#e8504a", "#f2c14e", "#4fb3bf", "#e87ab0", "#7ac060", "#a070e0"];
+var BOXES = ["#e8604a", "#40a070", "#f0c040", "#3a7ad0"];
+var PAPEL = [[236, 72, 150], [250, 150, 40], [140, 80, 210], [70, 190, 110], [60, 150, 230], [250, 210, 60]];
+
+function stepOddities(w, dt, hour, P) {
+    var R = Math.random, T = w.timers, W = w.W, i, j;
+    var night = P.night > 0.85, clear = w.rain < 0.1 && w.fog < 0.3;
+
+    // Satélites: casi siempre uno solo que cruza despacio (a veces destella); al anochecer y antes del
+    // amanecer, a veces un tren de satélites en fila.
+    T.sat -= dt;
+    if (T.sat <= 0) {
+        T.sat = 70 + R() * 150;
+        if (night && clear && !w.noStars) {
+            var twi = (hour >= 19.5 && hour < 22) || (hour >= 4 && hour < 6);
+            spawnSat(w, R() < (twi ? 0.35 : 0.05), R);
+        }
+    }
+    for (i = w.sats.length - 1; i >= 0; i--) {
+        var s = w.sats[i], tail = s.n * 5;
+        s.x += s.vx * dt; s.y += s.vy * dt; s.age += dt;
+        if ((s.vx > 0 ? s.x - tail > W + 2 : s.x + tail < -2) || s.y < -40) w.sats.splice(i, 1);
+    }
+
+    // Aurora boreal: algunas noches frías y despejadas en la montaña y el pueblo.
+    if (!w.lock) {
+        T.aurora -= dt;
+        if (T.aurora <= 0) {
+            T.aurora = 600;
+            var mo = today(w).getMonth();
+            w.auroraTarget = AURORA[w.scene] && (mo >= 9 || mo <= 2) && (hour >= 20.5 || hour < 4.5) && w.rain < 0.1 && R() < 0.3 ? 1 : 0;
+        }
+        if (w.rain > 0.2 || (hour >= 5 && hour < 19.5)) w.auroraTarget = 0;
+    }
+    w.aurora += clamp(w.auroraTarget - w.aurora, -dt / 90, dt / 90);
+
+    // Globos: a un niño se le escapa el suyo y sube hasta perderse.
+    T.balloon -= dt;
+    if (T.balloon <= 0) {
+        T.balloon = 40 + R() * 80;
+        var holders = w.people.filter(function (p) { return p.balloon && p.x > 20 && p.x < W - 20; });
+        if (holders.length && R() < 0.5) releaseBalloon(w, holders[Math.floor(R() * holders.length)], R);
+    }
+    for (i = w.balloons.length - 1; i >= 0; i--) {
+        var b = w.balloons[i];
+        b.ph += dt;
+        b.x += (b.vx + Math.sin(b.ph * 0.9) * 2.5) * dt;
+        b.y -= 7 * dt;
+        if (b.y < -14) w.balloons.splice(i, 1);
+    }
+
+    // Gato negro de noche; de madrugada, a veces un tlacuache.
+    T.odd -= dt;
+    if (T.odd <= 0) {
+        T.odd = 50 + R() * 100;
+        if ((hour >= 20 || hour < 5.5) && w.rain < 0.3 && w.odd.length < 1 && R() < 0.6)
+            spawnOdd(w, hour < 5.5 && R() < 0.5 ? "opossum" : "cat", R);
+    }
+    for (i = w.odd.length - 1; i >= 0; i--) {
+        var o = w.odd[i], near = null;
+        o.tm -= dt;
+        for (j = 0; j < w.people.length && !o.rail; j++) {
+            var q = w.people[j];
+            if (Math.abs(q.x - o.x) < (q.dog ? 22 : 12) && Math.abs(q.y - o.y) < 8) { near = q; break; }
+        }
+        var onScreen = o.x > 10 && o.x < W - 10;
+        if (o.kind === "cat") {
+            // Camina, se sienta a mirar y sale corriendo si se acerca un perro.
+            if (near && near.dog && o.state !== "run") { o.state = "run"; o.dir = near.x < o.x ? 1 : -1; }
+            if (o.state === "walk") {
+                o.x += o.dir * 8 * dt; o.dist += 8 * dt;
+                if (o.tm <= 0 && onScreen) { o.state = "sit"; o.tm = 2 + R() * 4; }
+            } else if (o.state === "sit") {
+                if (o.tm <= 0) { o.state = "walk"; o.tm = 4 + R() * 8; if (R() < 0.25) o.dir = -o.dir; }
+            } else { o.x += o.dir * 40 * dt; o.dist += 40 * dt; }
+        } else {
+            // El tlacuache va a hurgar bajo una banca (o en el piso) y se hace el muerto si alguien pasa cerca.
+            if (near && o.state !== "dead") { o.state = "dead"; o.tm = 6 + R() * 4; }
+            if (o.state === "dead") {
+                if (o.tm <= 0 && !near) { o.state = "walk"; o.tx = null; }
+            } else if (o.state === "walk") {
+                o.x += o.dir * 5 * dt; o.dist += 5 * dt;
+                if (o.tx !== null && Math.abs(o.x - o.tx) < 1) { o.state = "dig"; o.tm = 6 + R() * 6; }
+            } else if (o.tm <= 0) { o.state = "walk"; o.tx = null; }
+        }
+        if (o.x < -20 || o.x > W + 20) w.odd.splice(i, 1);
+    }
+
+    // Monstruo del lago: muy de vez en cuando asoma el cuello en la montaña.
+    if (w.scene === "mountain") {
+        T.nessie -= dt;
+        if (T.nessie <= 0) {
+            T.nessie = 400 + R() * 900;
+            if (!w.nessie && w.rain < 0.6 && R() < 0.4) w.nessie = makeNessie(w, R);
+        }
+        if (w.nessie) {
+            w.nessie.age += dt;
+            w.nessie.x += w.nessie.dir * 0.5 * dt;
+            if (w.nessie.age > w.nessie.life) w.nessie = null;
+        }
+    }
+
+    // Ballena a lo lejos en el mar: sopla, enseña el lomo y la cola, tres veces.
+    if (w.scene === "beach") {
+        T.whale -= dt;
+        if (T.whale <= 0) {
+            T.whale = 300 + R() * 600;
+            if (!w.whale && hour >= 7 && hour < 18.5 && w.rain < 0.4 && w.fog < 0.3 && R() < 0.5) w.whale = makeWhale(w, R);
+        }
+        if (w.whale) {
+            w.whale.age += dt;
+            w.whale.x += w.whale.dir * 0.6 * dt;
+            if (w.whale.age > 36) w.whale = null;
+        }
+    }
+}
+
+function spawnSat(w, train, R) {
+    var d = R() < 0.5 ? 1 : -1, sp = train ? 9 : 6 + R() * 4, a = (R() - 0.5) * 0.5;
+    w.sats.push({ x: d > 0 ? -2 : w.W + 2, y: 6 + R() * w.base * 0.4, vx: d * sp * Math.cos(a), vy: sp * Math.sin(a),
+        n: train ? 14 + Math.floor(R() * 10) : 1, flare: !train && R() < 0.3 ? 15 + R() * 30 : -1, age: 0 });
+}
+
+function releaseBalloon(w, p, R) {
+    w.balloons.push({ x: p.x + p.dir * 2, y: p.y - (p.kid ? 6 : 8), vx: p.dir * 2 + (R() - 0.5) * 3, col: p.balloon, ph: R() * 6 });
+    p.balloon = null;
+}
+
+function spawnOdd(w, kind, R) {
+    var d = R() < 0.5 ? 1 : -1, L = lanes(w), rail = kind === "cat" && w.scene === "city" && R() < 0.6;
+    var o = { kind: kind, x: d > 0 ? -12 : w.W + 12, y: rail ? w.yP - 1 : L[Math.floor(R() * L.length)], dir: d, state: "walk",
+        tm: 3 + R() * 5, dist: 0, rail: rail, seed: Math.floor(R() * 1000), tx: null };
+    if (kind === "opossum") {
+        // En la ciudad hurga junto a una banca; en otras escenas, en cualquier parte.
+        var B = w.benches || [];
+        o.y = B.length ? w.ground + 8 : o.y;
+        o.tx = B.length ? B[Math.floor(R() * B.length)] + 6 : Math.round(w.W * (0.2 + R() * 0.6));
+    }
+    w.odd.push(o);
+    return o;
+}
+
+// Asoma en la parte lejana del lago, por encima de las puntas de los pinos de la orilla y lejos de
+// la cabaña y el muelle.
+function makeNessie(w, R) {
+    for (var k = 0; k < 20; k++) {
+        var x = Math.round(30 + R() * (w.W - 60)), y = Math.round(w.yW + 6 + R() * Math.max(0, w.yP - w.yW - 20));
+        var ok = Math.abs(x - w.cabin.x) > 40 && Math.abs(x - w.dock.x - w.dock.dir * 15) > 28;
+        for (var i = 0; i < w.pines.length && ok; i++)
+            if (Math.abs(w.pines[i].x - x) < 26 && w.pines[i].y - w.pines[i].h <= y + 1) ok = false;
+        if (ok) return { x: x, y: y, dir: R() < 0.5 ? 1 : -1, age: 0, life: 22 + R() * 8 };
+    }
+    return null;
+}
+
+function makeWhale(w, R) {
+    for (var k = 0; k < 12; k++) {
+        var x = Math.round(30 + R() * (w.W - 60)), ok = true;
+        for (var i = -25; i <= 25 && ok; i++) if (w.sky[clamp(x + i, 0, w.W - 1)] < w.yW - 1) ok = false;
+        if (ok) return { x: x, y: w.yW + 3 + Math.floor(R() * 4), dir: R() < 0.5 ? 1 : -1, age: 0 };
+    }
+    return null;
+}
+
+// Para los arneses: saca ya una curiosidad (cat, opossum, nessie, whale, sat, starlink, balloon,
+// shower, aurora, wolf).
+function forceOddity(w, kind) {
+    var R = Math.random;
+    if (kind === "cat" || kind === "opossum") {
+        var o = spawnOdd(w, kind, R);
+        o.x = o.dir > 0 ? Math.round(w.W * 0.2) : Math.round(w.W * 0.8);
+        if (o.tx !== null) o.tx = o.x + o.dir * 30;
+    } else if (kind === "nessie" && w.scene === "mountain") { w.nessie = makeNessie(w, R); if (w.nessie) w.nessie.age = 5; }
+    else if (kind === "whale" && w.scene === "beach") w.whale = makeWhale(w, R);
+    else if (kind === "sat" || kind === "starlink") { spawnSat(w, kind === "starlink", R); var s = w.sats[w.sats.length - 1]; s.x = s.vx > 0 ? w.W * 0.3 : w.W * 0.7; }
+    else if (kind === "balloon") {
+        var p = w.people[Math.floor(R() * w.people.length)];
+        if (p) { p.balloon = rgb(pick(R, TOY_BALLOONS)); releaseBalloon(w, p, R); }
+    } else if (kind === "shower") { w.forceShower = true; w.timers.meteor = 0; }
+    else if (kind === "aurora") { w.aurora = w.auroraTarget = 1; w.timers.aurora = 1e9; }
+    else if (kind === "wolf") w.forceWolf = true;
+}
+
+// ----- dibujo en la capa de vida -----
+
+function drawSats(ctx, w, P, t) {
+    for (var i = 0; i < w.sats.length; i++) {
+        var s = w.sats[i], sp = Math.sqrt(s.vx * s.vx + s.vy * s.vy), ux = s.vx / sp, uy = s.vy / sp;
+        for (var k = 0; k < s.n; k++) {
+            // El tren se va abriendo hacia la cola; un satélite solo destella un par de segundos.
+            var g = k * (5 + k * 0.08), x = s.x - ux * g, y = s.y - uy * g, a = s.n > 1 ? 0.75 - k * 0.012 : 0.5;
+            var fl = s.flare > 0 ? clamp(1 - Math.abs(s.age - s.flare) / 1.2, 0, 1) : 0;
+            ctx.globalAlpha = Math.min(1, a + fl) * (1 - P.rain);
+            skyDot(ctx, w, x, y, "#f4f4ff");
+            if (fl > 0.3) { ctx.globalAlpha = 0.35 * fl; skyDot(ctx, w, x - 1, y, "#ffffff", 3); skyDot(ctx, w, x, y - 1, "#ffffff"); skyDot(ctx, w, x, y + 1, "#ffffff"); }
+        }
+    }
+    ctx.globalAlpha = 1;
+}
+
+// Globo de juguete; (x, y) es donde termina el hilo, sway lo ladea.
+function drawToyBalloon(ctx, x, y, col, P, sway) {
+    var c = lit(col, P), cc = css(c);
+    ctx.fillStyle = css(lit([210, 210, 220], P));
+    for (var k = 0; k < 6; k++) ctx.fillRect(Math.round(x + (k > 2 ? sway : 0)), Math.round(y - k), 1, 1);
+    var bx = Math.round(x + sway), by = Math.round(y) - 11;
+    rect(ctx, bx - 1, by, 3, 1, cc);
+    rect(ctx, bx - 2, by + 1, 5, 2, cc);
+    rect(ctx, bx - 1, by + 3, 3, 1, cc);
+    rect(ctx, bx, by + 4, 1, 1, css(mul(c, 0.75)));
+    rect(ctx, bx - 1, by + 1, 1, 1, css(mix(c, [255, 255, 255], 0.5)));
+}
+
+// Gato negro de 8×5 caminando (mira a la derecha) o sentado de frente; de noche le brillan los ojos.
+var CAT_WALK = ["k....k.k", "k....kek", ".kkkkkkk", ".kkkkk..", ".k..k..."];
+var CAT_WALK2 = ["k....k.k", "k....kek", ".kkkkkkk", ".kkkkk..", "..k..k.."];
+var CAT_SITS = ["k...k.", "kkkkk.", "kekek.", ".kkk.k", ".kkkkk", "kkkkkk"];
+// Tlacuache de 12×5: gris, cara blanca, nariz y cola rosas.
+var OPOSSUM = ["....ggggg.e.", "...ggggggwwk", "pp.ggggggwwp", "..pgggggg...", "...d.d..d.d."];
+var OPOSSUM2 = ["....ggggg.e.", "...ggggggwwk", "pp.ggggggwwp", "..pgggggg...", "....d.d..d.d"];
+function drawOdd(ctx, o, P, t) {
+    var x, y, rows, pal, r, k, flip = o.dir < 0;
+    if (o.kind === "cat") {
+        var body = [30, 28, 38], blink = hash2(o.seed, Math.floor(t * 3)) < 0.08;
+        var eye = P.night > 0.5 ? (blink ? body : [216, 240, 96]) : [180, 190, 80];
+        pal = { k: body, e: eye };
+        rows = o.state === "sit" ? CAT_SITS : (o.state === "run" || Math.floor(o.dist / 3) % 2 ? CAT_WALK2 : CAT_WALK);
+        x = Math.round(o.x) - (rows === CAT_SITS ? 3 : 4); y = Math.round(o.y) - rows.length + 1;
+        if (rows === CAT_SITS) flip = false;
+        // Cola que se mueve cuando está sentado.
+        if (rows === CAT_SITS && Math.floor(t * 1.5 + o.seed) % 2) rows = [rows[0], rows[1], rows[2], ".kkk..", ".kkkkk", "kkkkkk"];
+    } else {
+        pal = { g: lit([150, 148, 156], P), w: lit([236, 232, 226], P), k: [20, 20, 24], p: lit([232, 160, 170], P), e: lit([60, 50, 56], P), d: lit([60, 54, 60], P) };
+        rows = Math.floor(o.dist / 2) % 2 ? OPOSSUM2 : OPOSSUM;
+        x = Math.round(o.x) - 6; y = Math.round(o.y) - 4;
+        if (o.state === "dead") {
+            // Patas arriba.
+            rows = rows.slice().reverse();
+        }
+    }
+    var dig = o.state === "dig" && Math.floor(t * 4) % 2;
+    for (r = 0; r < rows.length; r++)
+        for (k = 0; k < rows[r].length; k++) {
+            var ch = rows[r][flip ? rows[r].length - 1 - k : k];
+            if (ch === ".") continue;
+            var cx = flip ? rows[r].length - 1 - k : k;
+            rect(ctx, x + k, y + r + (dig && cx >= 9 ? 1 : 0), 1, 1, css(pal[ch]));
+        }
+    if (o.kind === "cat" && P.night > 0.5 && pal.e !== pal.k) {
+        // Brillo de los ojos.
+        ctx.globalAlpha = 0.25;
+        var ex = rows[0] === "k...k." ? x + 2 : (flip ? x + 1 : x + 6);
+        rect(ctx, ex - 1, y + (rows[0] === "k...k." ? 1 : 0), 3, 3, "#e0ff80");
+        ctx.globalAlpha = 1;
+    }
+    if (dig && hash2(o.seed, Math.floor(t * 4)) < 0.5) rect(ctx, x + (flip ? -1 : 12), y + 3 - Math.floor(t * 4) % 3, 1, 1, css(lit([120, 100, 80], P)));
+}
+
+function drawNessie(ctx, w, n, P, t) {
+    var k = clamp(Math.min(n.age, n.life - n.age) / 4, 0, 1), x = Math.round(n.x), y = n.y, d = n.dir;
+    var body = lit([56, 92, 78], P), C = css(body), D = css(mul(body, 0.72));
+    function arc(x0, wd, hh) {
+        for (var i = 0; i < wd; i++) {
+            var e = Math.round(hh * Math.sin((i + 0.5) / wd * Math.PI));
+            if (e > 0) rect(ctx, x0 + i, y - e, 1, e, C);
+        }
+    }
+    arc(x - d * 7 - 2, 5, 3 * k);
+    arc(x - d * 13 - 2, 4, 2 * k);
+    var neck = Math.round(10 * k);
+    if (neck > 1) {
+        rect(ctx, x, y - neck, 2, neck, C);
+        rect(ctx, d > 0 ? x + 1 : x, y - neck + 2, 1, neck - 2, D);
+        // La cabeza mira hacia donde nada; a media visita voltea a ver la orilla.
+        var hd = n.age > n.life * 0.4 && n.age < n.life * 0.6 ? -d : d, hx = hd > 0 ? x : x - 2;
+        rect(ctx, hx, y - neck - 2, 4, 2, C);
+        rect(ctx, hd > 0 ? x + 3 : x - 2, y - neck - 1, 1, 1, D);
+        rect(ctx, hd > 0 ? x + 2 : x - 1, y - neck - 2, 1, 1, "#141418");
+    }
+    // Ondas alrededor.
+    ctx.fillStyle = css(mix(P.water, [255, 255, 255], 0.45));
+    for (var i = 0; i < 3; i++) {
+        var rr = ((t * 3 + i * 4) % 12);
+        ctx.globalAlpha = 0.5 * k * (1 - rr / 12);
+        ctx.fillRect(x - 3 - Math.round(rr), y, 3, 1);
+        ctx.fillRect(x + 2 + Math.round(rr), y, 3, 1);
+    }
+    ctx.globalAlpha = 1;
+}
+
+// ----- dibujo en la capa ambiental -----
+
+// Cortinas de luz verde y morada que ondulan despacio; solo donde se ve el cielo.
+function drawAurora(ctx, w, P, t) {
+    var k = w.aurora * clamp((P.night - 0.6) / 0.3, 0, 1) * (1 - P.rain);
+    if (k < 0.02) return;
+    var W = w.W, base = w.base;
+    for (var x = 0; x < W; x++) {
+        var u = x / W;
+        // Intensidad suave (sin cortes) con rayitas verticales que se mueven.
+        var band = 0.5 + 0.5 * Math.sin(u * 11 - t * 0.13 + Math.sin(u * 3 + t * 0.02) * 2);
+        var inten = band * band * (0.7 + 0.3 * Math.sin(u * 90 + t * 0.5 + Math.sin(u * 9) * 4));
+        if (inten < 0.03) continue;
+        var top = Math.round(base * 0.1 + Math.sin(u * 6 + t * 0.05) * 7 + Math.sin(u * 17 - t * 0.08) * 3);
+        var len = Math.round(base * 0.22 + Math.sin(u * 23 + t * 0.11) * 8 + Math.sin(u * 41 + t * 0.17) * 4);
+        var bot = Math.min(top + len, w.sky[x]), mid = top + Math.round(len * 0.45);
+        if (bot <= top) continue;
+        ctx.globalAlpha = 0.1 * k * inten;
+        rect(ctx, x, top, 1, Math.max(0, Math.min(mid, bot) - top), "#b060e0");
+        ctx.globalAlpha = 0.2 * k * inten;
+        if (bot > mid) rect(ctx, x, mid, 1, bot - mid, "#50f0a0");
+        ctx.globalAlpha = 0.32 * k * inten;
+        if (bot === top + len) rect(ctx, x, bot - 2, 1, 2, "#b0ffd8");
+    }
+    ctx.globalAlpha = 1;
+}
+
+function drawOddAmbient(ctx, w, P, t) {
+    var S = season(w);
+    if (S.muertos || S.halloween) drawSeason(ctx, w, P, t, S);
+    if (w.scene === "mountain") { drawOwl(ctx, w, P, t); drawWolf(ctx, w, P, t); }
+    if (w.whale) drawWhale(ctx, w, w.whale, P);
+}
+
+// Búho en la punta del pino más alto de la orilla: voltea la cabeza y parpadea.
+function drawOwl(ctx, w, P, t) {
+    if (P.night < 0.6 || P.rain > 0.3 || !w.pines.length) return;
+    if (!w.owlPine) w.owlPine = w.pines.reduce(function (a, b) { return b.h > a.h ? b : a; });
+    var x = w.owlPine.x, y = w.owlPine.y - w.owlPine.h;
+    var body = lit([128, 96, 66], P), C = css(body), D = css(mul(body, 0.7)), belly = css(mix(body, [230, 210, 180], 0.3));
+    var look = [0, -1, 0, 1, 0, 0][Math.floor(t / 2.5) % 6], blink = (t % 4.3) < 0.25;
+    var eye = blink ? C : "#ffd040";
+    rect(ctx, x - 1, y - 5, 1, 1, D); rect(ctx, x + 1, y - 5, 1, 1, D);
+    rect(ctx, x - 1, y - 4, 3, 4, C);
+    rect(ctx, x, y - 2, 1, 2, belly);
+    if (look === 0) { rect(ctx, x - 1, y - 4, 1, 1, eye); rect(ctx, x + 1, y - 4, 1, 1, eye); rect(ctx, x, y - 3, 1, 1, D); }
+    else rect(ctx, x + look, y - 4, 1, 1, eye);
+    if (!blink && P.night > 0.8) {
+        ctx.globalAlpha = 0.25;
+        rect(ctx, x - 2, y - 5, 5, 3, "#ffd040");
+        ctx.globalAlpha = 1;
+    }
+}
+
+// Lobo sobre una loma, a contraluz: las noches de luna llena (y alguna otra) aúlla cada tanto.
+var WOLF = [".........", ".......k.", "......kkk", "k.kkkkkk.", ".kkkkkk..", "..k...k..", "..k...k.."];
+var WOLF_HOWL = [".......k.", "......kk.", "......kk.", "k.kkkkk..", ".kkkkkk..", "..k...k..", "..k...k.."];
+function drawWolf(ctx, w, P, t) {
+    if (P.night < 0.7 || P.rain > 0.2 || P.fog > 0.4) return;
+    var d = today(w), night = Math.floor((d.getTime() - d.getTimezoneOffset() * 60000 - 43200000) / 86400000);
+    if (!w.forceWolf && Math.abs(moonPhase(d) - 0.5) > 0.06 && hash2(night, 77) > 0.12) return;
+    if (w.wolfX === undefined) {
+        // El tramo más plano de la silueta que sea cerro (no pinos), sin pegarse a las orillas.
+        var best = -1, bestS = 1e9;
+        for (var x = Math.round(w.W * 0.15); x < w.W * 0.85; x++) {
+            var s = 0;
+            for (var k = -4; k <= 4; k++) {
+                var r = Math.min(w.ranges[0][x + k], w.ranges[1][x + k], w.ranges[2][x + k]);
+                if (w.sky[x + k] < r) s += 100;
+                s += Math.abs(w.sky[x + k] - w.sky[x]);
+            }
+            s += w.sky[x] * 0.02;
+            if (s < bestS) { bestS = s; best = x; }
+        }
+        w.wolfX = best;
+    }
+    var wx = w.wolfX, howl = (t % 14) < 4, rows = howl ? WOLF_HOWL : WOLF;
+    var col = css(mix(P.cs, [10, 10, 22], 0.75)), y0 = w.sky[wx] - rows.length;
+    ctx.fillStyle = col;
+    for (var r = 0; r < rows.length; r++)
+        for (var c = 0; c < rows[r].length; c++) if (rows[r][c] !== ".") ctx.fillRect(wx - 4 + c, y0 + r, 1, 1);
+}
+
+function drawWhale(ctx, w, wh, P) {
+    var c = wh.age % 12, x = Math.round(wh.x), y = wh.y, d = wh.dir;
+    var dark = css(lit([52, 62, 82], P)), spray = css(mix(lit([240, 246, 255], P), [255, 255, 255], 0.3));
+    if (c < 1.8) {
+        // Soplido: chorro que sube y se abre.
+        var h = Math.round(Math.min(c, 0.8) / 0.8 * 7);
+        ctx.fillStyle = spray;
+        for (var k = 0; k < h; k++) {
+            ctx.globalAlpha = (c < 1 ? 0.8 : 0.8 * (1.8 - c) / 0.8) * (1 - k / 10);
+            var sp = k > 4 ? k - 4 : 0;
+            ctx.fillRect(x - sp, y - 1 - k, 1, 1);
+            if (sp) ctx.fillRect(x + sp, y - 1 - k, 1, 1);
+        }
+        ctx.globalAlpha = 1;
+    }
+    if (c > 0.3 && c < 4.5) {
+        var e = clamp(Math.min(c - 0.3, 4.5 - c) / 0.6, 0, 1);
+        if (e > 0.3) { rect(ctx, x - 3, y - 1, 7, 1, dark); if (e > 0.7) { rect(ctx, x - 2, y - 2, 4, 1, dark); rect(ctx, x - d * 2, y - 3, 1, 1, dark); } }
+    }
+    if (c > 5 && c < 7.2) {
+        // La cola sale en V y se hunde.
+        var tx = x - d * 6, th = Math.round(3 * clamp(Math.min(c - 5, 7.2 - c) / 0.5, 0, 1));
+        if (th >= 1) rect(ctx, tx, y - 1, 1, 1, dark);
+        if (th >= 2) rect(ctx, tx, y - 2, 1, 1, dark);
+        if (th >= 3) { rect(ctx, tx - 2, y - 4, 2, 1, dark); rect(ctx, tx + 1, y - 4, 2, 1, dark); rect(ctx, tx - 1, y - 3, 3, 1, dark); }
+    }
+}
+
+// Calabaza de 5×5; de noche, con cara tallada y luz por dentro.
+function drawPumpkin(ctx, x, y, P, t, seed) {
+    var o = lit([236, 126, 30], P), C = css(o), D = css(mul(o, 0.75));
+    rect(ctx, x - 2, y - 3, 5, 3, C);
+    rect(ctx, x - 1, y - 4, 3, 1, C);
+    rect(ctx, x - 1, y - 3, 1, 3, D); rect(ctx, x + 1, y - 3, 1, 3, D);
+    rect(ctx, x, y - 5, 1, 1, css(lit([70, 120, 50], P)));
+    if (P.night > 0.4) {
+        var fl = 0.8 + 0.2 * hash2(seed, Math.floor(t * 4)), glow = "#ffd060";
+        ctx.globalAlpha = 0.18 * fl;
+        disc(ctx, x, y - 2, 4, "#ffb040");
+        ctx.globalAlpha = fl;
+        rect(ctx, x - 1, y - 3, 1, 1, glow); rect(ctx, x + 1, y - 3, 1, 1, glow);
+        rect(ctx, x - 1, y - 1, 3, 1, glow);
+        ctx.globalAlpha = 1;
+    }
+}
+
+// Macetita de cempasúchil; (x, y) es el piso.
+function drawMarigold(ctx, x, y, P) {
+    var o1 = css(lit([250, 140, 20], P)), o2 = css(lit([255, 192, 40], P));
+    rect(ctx, x - 1, y - 2, 3, 2, css(lit([160, 84, 52], P)));
+    rect(ctx, x - 2, y - 3, 5, 1, css(lit([60, 120, 60], P)));
+    rect(ctx, x - 2, y - 4, 2, 1, o1); rect(ctx, x + 1, y - 4, 2, 1, o2);
+    rect(ctx, x - 1, y - 5, 2, 1, o2); rect(ctx, x, y - 4, 1, 1, o1);
+}
+
+function drawCandle(ctx, x, y, P, t, seed) {
+    rect(ctx, x, y - 2, 1, 2, css(lit([240, 236, 220], P)));
+    if (P.night < 0.3) return;
+    var f = hash2(seed, Math.floor(t * 4));
+    ctx.globalAlpha = 0.25;
+    disc(ctx, x, y - 3, 2, "#ffb040");
+    ctx.globalAlpha = 1;
+    rect(ctx, x, y - 3 - (f < 0.3 ? 1 : 0), 1, 1, f < 0.6 ? "#ffd060" : "#ffa030");
+}
+
+// Tira de papel picado entre a y b: banderitas con agujeros (se borra el pixel) que ondean.
+function drawPapel(ctx, a, b, y, sag, P, t, seed) {
+    var span = b - a, n = 0, x;
+    ctx.fillStyle = css(lit([60, 56, 64], P));
+    for (x = a; x <= b; x++) ctx.fillRect(x, y + Math.round(Math.sin((x - a) / span * Math.PI) * sag), 1, 1);
+    for (x = a + 2; x + 4 <= b - 1; x += 6) {
+        var yy = y + Math.round(Math.sin((x + 2 - a) / span * Math.PI) * sag) + 1;
+        var c = PAPEL[(n++ + seed) % PAPEL.length], col = css(mix(lit(c, P), c, 0.25));
+        var fl = hash2(x * 7 + seed, Math.floor(t * 3)) < 0.3 ? 1 : 0;
+        rect(ctx, x, yy, 4, 3, col);
+        rect(ctx, x + fl, yy + 3, 1, 1, col);
+        rect(ctx, x + 2 + fl, yy + 3, 1, 1, col);
+        ctx.clearRect(x + 1, yy + 1, 1, 1);
+        ctx.clearRect(x + 2, yy + 2, 1, 1);
+    }
+}
+
+// Adornos de temporada en la ciudad (faroles y bancas) y en el campo (casa y espantapájaros).
+function drawSeason(ctx, w, P, t, S) {
+    var i;
+    if (w.scene === "city") {
+        var top = w.ground + 4 - 30;
+        for (i = 0; i < w.lamps.length; i++) {
+            var lx = w.lamps[i];
+            if (S.muertos) {
+                if (i + 1 < w.lamps.length && w.lamps[i + 1] - lx < 140) drawPapel(ctx, lx + 3, w.lamps[i + 1] - 3, top + 3, 7, P, t, i);
+                drawMarigold(ctx, lx - 5, w.ground + 4, P);
+                drawMarigold(ctx, lx + 5, w.ground + 4, P);
+                drawCandle(ctx, lx - 8, w.ground + 4, P, t, i * 2);
+                drawCandle(ctx, lx + 8, w.ground + 4, P, t, i * 2 + 1);
+            }
+        }
+        if (S.halloween)
+            for (i = 0; i < w.benches.length; i++) {
+                drawPumpkin(ctx, w.benches[i] - 4, w.ground + 6, P, t, i);
+                drawPumpkin(ctx, w.benches[i] + 16, w.ground + 6, P, t, i + 50);
+            }
+    } else if (w.scene === "farm") {
+        var Hs = w.house;
+        if (S.muertos) {
+            drawPapel(ctx, Hs.x, Hs.x + Hs.w, Hs.y - Hs.h + 1, 3, P, t, 3);
+            for (var x = Hs.x + 3; x < Hs.x + Hs.w - 2; x += 8) drawMarigold(ctx, x, Hs.y + 1, P);
+            drawCandle(ctx, Hs.x - 3, Hs.y + 1, P, t, 7);
+            drawCandle(ctx, Hs.x + Hs.w + 2, Hs.y + 1, P, t, 8);
+        }
+        if (S.halloween) {
+            drawPumpkin(ctx, w.scare.x - 6, w.scare.y + 1, P, t, 1);
+            drawPumpkin(ctx, w.scare.x + 6, w.scare.y, P, t, 2);
+            drawPumpkin(ctx, w.scare.x + 1, w.scare.y + 3, P, t, 3);
+            drawPumpkin(ctx, Hs.x - 6, Hs.y + 1, P, t, 4);
+        }
+    }
+}
+
+// Repartidor en bici (o ciclista) de 13×15, mira a la derecha; de noche lleva luces.
+function drawBiker(ctx, p, P) {
+    var x0 = Math.round(p.x) - 6, y0 = Math.round(p.y) - 14, d = p.dir;
+    if (p.cP !== P) {
+        p.cP = P;
+        p.cc = [css(lit(p.skin, P)), css(lit(p.hair, P)), css(lit(p.top, P)), css(lit(p.bottom, P)), css(lit([40, 36, 44], P))];
+    }
+    var skin = p.cc[0], hair = p.cc[1], top = p.cc[2], bot = p.cc[3], tire = "#1c1c24";
+    var frame = css(lit(p.frame, P)), grey = css(lit([150, 150, 160], P));
+    function px(c, r, w, h, col) { rect(ctx, d > 0 ? x0 + c : x0 + 12 - (c + w - 1), y0 + r, w, h, col); }
+    var spin = Math.floor(p.dist / 2) % 2, ped = Math.floor(p.dist / 4) % 2;
+    // Pierna de atrás, más oscura, en la fase contraria.
+    var far = css(mul(lit(p.bottom, P), 0.7));
+    if (ped) { px(5, 8, 1, 1, far); px(6, 9, 1, 2, far); } else { px(4, 8, 1, 1, far); px(5, 9, 1, 4, far); }
+    // Ruedas con rayos que giran.
+    [2, 10].forEach(function (cx) {
+        px(cx - 1, 10, 3, 1, tire); px(cx - 1, 14, 3, 1, tire);
+        px(cx - 2, 11, 1, 3, tire); px(cx + 2, 11, 1, 3, tire);
+        px(cx, 12, 1, 1, grey);
+        px(spin ? cx - 1 : cx + 1, 11, 1, 1, grey); px(spin ? cx + 1 : cx - 1, 13, 1, 1, grey);
+    });
+    // Cuadro, asiento y manubrio.
+    px(3, 12, 3, 1, frame); px(5, 9, 4, 1, frame); px(4, 10, 1, 2, frame); px(9, 9, 1, 2, frame); px(10, 11, 1, 1, frame);
+    px(3, 8, 2, 1, "#202028"); px(9, 8, 2, 1, grey);
+    // Ciclista inclinado hacia el manubrio.
+    px(3, 7, 2, 1, bot);
+    px(4, 6, 2, 1, top); px(5, 5, 2, 1, top); px(5, 4, 3, 1, top);
+    px(8, 5, 1, 1, top); px(9, 6, 1, 1, top); px(9, 7, 1, 1, skin);
+    px(6, 1, 3, 1, hair); px(6, 2, 1, 1, hair); px(7, 2, 2, 2, skin);
+    if (ped) { px(5, 8, 1, 1, bot); px(6, 9, 1, 2, bot); px(6, 11, 1, 1, "#28242c"); }
+    else { px(4, 8, 1, 1, bot); px(5, 9, 1, 3, bot); px(5, 12, 1, 1, "#28242c"); }
+    if (p.box) {
+        var bc = lit(p.box, P);
+        px(1, 2, 4, 4, css(bc)); px(1, 2, 4, 1, css(mix(bc, [255, 255, 255], 0.25))); px(2, 4, 2, 1, css(mul(bc, 0.7)));
+    }
+    if (P.night > 0.4) {
+        if (Math.floor(p.dist / 6) % 2) px(0, 9, 1, 1, "#ff3030");
+        px(11, 8, 1, 1, "#fff6d8");
+        ctx.globalAlpha = 0.18;
+        px(12, 8, 1, 3, "#fff0c0");
+        rect(ctx, d > 0 ? x0 + 13 : x0 - 6, y0 + 9, 6, 2, "#fff0c0");
+        ctx.globalAlpha = 1;
+    }
 }
 
 // ---------- tabla de escenas ----------

@@ -13,25 +13,18 @@
 <script src="package/contents/ui/scene.js"></script>
 <script>
 // Arnés de pruebas: compone las mismas capas que main.qml en un solo lienzo.
-// Parámetros: ?scene=beach&hour=18.5&rain=0.8&weather=fog&sim=60&seed=7&px=4&live=1
+// Parámetros: ?scene=beach&hour=18.5&rain=0.8&weather=fog&sim=60&seed=7&px=4&live=1&date=10-31&odd=cat
 // (scene: city, beach, mountain, village, farm o cyber; px: pixeles de pantalla por pixel de arte)
 var q = new URLSearchParams(location.search);
 var PX = +(q.get("px") || 4), W = Math.ceil(innerWidth / PX), H = Math.ceil(innerHeight / PX);
 var world = create(W, H, +(q.get("seed") || 20251115), { scene: q.get("scene") || "city" });
+// date=10-31 finge esa fecha (temporadas, lluvias de estrellas, luna llena); conserva la hora real.
+if (q.has("date")) { var dm = q.get("date").split("-"), fd = new Date(); fd.setMonth(+dm[0] - 1, +dm[1]); world.fakeDate = fd.getTime(); }
 var fixedHour = q.has("hour") ? +q.get("hour") : null;
 function hourNow() { var d = new Date(); return fixedHour !== null ? fixedHour : d.getHours() + d.getMinutes() / 60; }
 if (q.has("rain")) { world.rain = world.rainTarget = +q.get("rain"); world.timers.weather = 1e9; }
 // weather=clear|rain|storm|snow|fog|rainbow|fireworks fija un escenario de clima.
 if (q.has("weather")) setWeather(world, q.get("weather"));
-// flyer=banner|skywrite|... saca ese reloj volador de inmediato (aunque no le toque por hora o fecha).
-if (q.has("flyer")) {
-  var fk = q.get("flyer");
-  world.flyer = FLYERS[fk].make(world, +(q.get("dir") || 1), Math.random);
-  world.flyer.kind = fk;
-  world.flyerIdx = FLYER_ORDER.indexOf(fk);
-}
-// jets=1 saca los jets de la hora en punto.
-if (q.has("jets")) spawnJets(world, Math.random);
 
 function layer(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
 var sky = layer(W, H), clouds = layer(W * 2, H), city = layer(W, H), ambient = layer(W, H), life = layer(W, H), front = layer(W, H);
@@ -58,6 +51,18 @@ function compose() {
 P = palette(world, hourNow());
 if (world.rain > 0) for (var i = 0; i < world.people.length; i++) world.people[i].umbrella = null;
 warmup(world, hourNow(), P);
+// Después del calentamiento, para que no termine de cruzar antes de verse.
+// flyer=banner|skywrite|... saca ese reloj volador de inmediato (aunque no le toque por hora o fecha).
+if (q.has("flyer")) {
+  var fk = q.get("flyer");
+  world.flyer = FLYERS[fk].make(world, +(q.get("dir") || 1), Math.random);
+  world.flyer.kind = fk;
+  world.flyerIdx = FLYER_ORDER.indexOf(fk);
+}
+// jets=1 saca los jets de la hora en punto.
+if (q.has("jets")) spawnJets(world, Math.random);
+// odd=cat,opossum,nessie,whale,sat,starlink,balloon,shower,aurora,wolf saca esas curiosidades.
+if (q.has("odd")) q.get("odd").split(",").forEach(function (k) { forceOddity(world, k); });
 var sim = +(q.get("sim") || 0);
 for (var s = 0; s < sim * 12; s++) step(world, 1 / 12, hourNow(), P);
 repaintStatic(t0);
