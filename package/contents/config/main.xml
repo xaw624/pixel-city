@@ -18,6 +18,16 @@
       <label>Escenario</label>
       <default>city</default>
     </entry>
+    <!-- Reaccionar al ratón: clics y puntero (solo con el diseño de escritorio «Escritorio»). -->
+    <entry name="Mouse" type="Bool">
+      <label>Interactuar con el ratón</label>
+      <default>true</default>
+    </entry>
+    <!-- Canal de órdenes de los atajos de teclado ("nombre marca"); lo escribe el comando pixelcity. -->
+    <entry name="Command" type="String">
+      <label>Última orden</label>
+      <default></default>
+    </entry>
   </group>
 
 </kcfg>

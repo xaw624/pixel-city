@@ -290,6 +290,9 @@ function initLife(w, R) {
     w.odd = [];                // gato negro y tlacuache
     w.aurora = w.auroraTarget = 0;
     w.nessie = w.whale = null;
+    w.cursor = null;           // puntero del ratón en pixeles de arte (ver hover)
+    w.ripples = [];            // ondas de los clics en el agua
+    w.showerT = 0;             // segundos que le quedan a una lluvia de estrellas pedida con un atajo
     // Reloj volador (ver FLYERS): empieza el dirigible, a media pantalla.
     w.flyer = { kind: "blimp", x: Math.round(W * (0.2 + R() * 0.3)), y: ri(R, 16, 34), dir: 1, speed: 5, m: 24 };
     w.flyerIdx = 0;
@@ -1427,7 +1430,7 @@ function step(w, dt, hour, P) {
     // En las noches de lluvia de estrellas caen muchas, todas desde el mismo punto del cielo.
     T.meteor -= dt;
     if (T.meteor <= 0) {
-        var shower = (hour >= 21 || hour < 5) && showerNight(w);
+        var shower = w.showerT > 0 || ((hour >= 21 || hour < 5) && showerNight(w));
         T.meteor = shower ? 2 + R() * 8 : 200 + R() * 300;
         if (P.night > 0.8 && P.rain < 0.1) {
             if (shower) {
@@ -1467,6 +1470,7 @@ function step(w, dt, hour, P) {
         if (w.splashes[i].life <= 0) w.splashes.splice(i, 1);
     }
 
+    stepInteract(w, dt);
     stepOddities(w, dt, hour, P);
 
     var S = SCENES[w.scene];
@@ -1562,7 +1566,8 @@ function drawPerson(ctx, p, P) {
         spr(ctx, X, Y, d, 1, 1, 1, 1, hair);
         spr(ctx, X, Y, d, 2, 1, 2, 1, skin);
         spr(ctx, X, Y, d, 1, 2, 3, 3, top);
-        if (f === 0) spr(ctx, X, Y, d, 4, 3, 1, 2, top);
+        if (p.wave > 0) { spr(ctx, X, Y, d, 4, 1, 1, 2, top); spr(ctx, X, Y, d, 4 + Math.floor(p.wave * 5) % 2, 0, 1, 1, skin); }
+        else if (f === 0) spr(ctx, X, Y, d, 4, 3, 1, 2, top);
         if (f === 2) spr(ctx, X, Y, d, 0, 3, 1, 2, top);
         if (p.scarf) spr(ctx, X, Y, d, 1, 2, 3, 1, css(lit(p.scarf, P)));
         spr(ctx, X, Y, d, 1, 5, 3, 1, bot);
@@ -1583,8 +1588,10 @@ function drawPerson(ctx, p, P) {
     // Torso y brazos.
     spr(ctx, X, Y, d, 1, 3, 3, 5, top);
     if (p.style === 1) spr(ctx, X, Y, d, 1, 3, 1, 2, hair);
-    var swing = p.umbrella || p.torch ? 1 : (p.phone ? 2 : [1, 0, -1, 0][f]);
-    if (swing === 2) drawPhone(ctx, p, X, Y, d, P, top, skin);
+    var swing = p.umbrella || p.torch ? 1 : (p.wave > 0 ? 3 : (p.phone ? 2 : [1, 0, -1, 0][f]));
+    // Saluda con la mano en alto, moviéndola de lado a lado.
+    if (swing === 3) { spr(ctx, X, Y, d, 4, 1, 1, 3, top); spr(ctx, X, Y, d, 4 + Math.floor(p.wave * 5) % 2, 0, 1, 1, skin); }
+    else if (swing === 2) drawPhone(ctx, p, X, Y, d, P, top, skin);
     else if (swing === 1) { spr(ctx, X, Y, d, 4, 4, 1, 2, top); spr(ctx, X, Y, d, 4, 6, 1, 1, skin); }
     else if (swing === -1) { spr(ctx, X, Y, d, 0, 4, 1, 2, top); spr(ctx, X, Y, d, 0, 6, 1, 1, skin); }
     else spr(ctx, X, Y, d, 3, 7, 1, 1, skin);
@@ -1921,6 +1928,7 @@ function drawLife(ctx, w, P, t) {
     }
 
     if (w.nessie) drawNessie(ctx, w, w.nessie, P, t);
+    if (w.ripples.length) drawRipples(ctx, w, P);
     // Barcos.
     for (i = 0; i < w.boats.length; i++) drawBoat(ctx, w.boats[i], P, t);
     var S = SCENES[w.scene];
@@ -5235,7 +5243,7 @@ function drawFarmVehicle(ctx, car, P) {
 // Vaca de perfil: pastando, parada, caminando o echada (de noche).
 function drawCow(ctx, c, P, t) {
     // Si el ovni la levanta, sube y da vueltas despacio en el aire.
-    var lift = c.lift || 0, d = lift > 3 ? (Math.floor(t * 0.8 + c.spots) % 2 ? 1 : -1) : c.dir;
+    var lift = c.lift || (c.jump > 0 ? Math.round(Math.sin(c.jump / 0.5 * Math.PI) * 3) : 0), d = lift > 3 ? (Math.floor(t * 0.8 + c.spots) % 2 ? 1 : -1) : c.dir;
     var x0 = Math.round(c.x) - 6, y0 = Math.round(c.y) - 9 - lift;
     if (lift) {
         ctx.globalAlpha = 0.25;
@@ -6318,6 +6326,159 @@ function drawBiker(ctx, p, P) {
         rect(ctx, d > 0 ? x0 + 13 : x0 - 6, y0 + 9, 6, 2, "#fff0c0");
         ctx.globalAlpha = 1;
     }
+}
+
+// ---------- interacción ----------
+// poke(w, x, y): un clic en (x, y), en pixeles de arte; hover(w, x, y) dice dónde está el puntero
+// (null si salió); command(w, nombre) ejecuta una orden de los atajos de teclado. Sirven igual en
+// main.qml, en Lively y en preview.html.
+
+// Órdenes de los atajos (ver pixelcity en install.sh): nombre → función.
+var COMMANDS = {
+    fuegos: function (w) { w.show = Math.max(w.show, 60); w.timers.rocket = 0; },
+    ovni: function (w) {
+        if (w.flyer && w.flyer.kind === "ufo") return;
+        var d = Math.random() < 0.5 ? 1 : -1;
+        w.flyer = makeUfo(w, d, Math.random);
+        w.flyer.kind = "ufo";
+    },
+    estrellas: function (w) { w.showerT = 180; w.timers.meteor = 0; },
+    aurora: function (w) { w.auroraTarget = 1; w.aurora = Math.max(w.aurora, 0.3); w.timers.aurora = 600; },
+    gato: function (w) { forceOddity(w, "cat"); },
+    globo: function (w) { forceOddity(w, "balloon"); },
+    lluvia: function (w) {
+        w.rainTarget = w.rainTarget > 0 ? 0 : 0.8;
+        if (w.rain < 0.05) { w.snow = w.alwaysSnow || (!w.noSnow && (w.month === 11 || w.month <= 1)); w.storm = false; }
+        w.timers.weather = 600;
+    },
+    jets: function (w) { if (!w.jets) spawnJets(w, Math.random); }
+};
+function command(w, name) {
+    if (w && COMMANDS[name]) COMMANDS[name](w);
+}
+
+function hover(w, x, y) {
+    w.cursor = x === null || x === undefined ? null : { x: x, y: y };
+}
+
+// Lo que hay bajo el clic, de lo más chico y cercano a lo más grande: animales, gente, aves,
+// el ovni, el agua y el cielo.
+function poke(w, x, y) {
+    var R = Math.random, i;
+    function hit(cx, top, bot, half) { return Math.abs(x - cx) <= half && y >= top - 1 && y <= bot + 1; }
+    for (i = 0; i < w.odd.length; i++) {
+        var o = w.odd[i];
+        if (!hit(o.x, o.y - 6, o.y, 6)) continue;
+        if (o.kind === "cat") { o.state = "run"; o.dir = x < o.x ? 1 : -1; }
+        else { o.state = "dead"; o.tm = 6 + R() * 3; }
+        return "odd";
+    }
+    if (w.critters) for (i = 0; i < w.critters.length; i++) {
+        var c = w.critters[i];
+        if (!hit(c.x, c.y - 10, c.y, 7)) continue;
+        c.dir = x < c.x ? 1 : -1;
+        if (c.kind === "crab") { c.run = true; c.tm = 1.5; }
+        else if (c.kind === "cow") { c.state = "walk"; c.tm = 3; c.jump = 0.5; }
+        else if (c.kind === "skater") continue;
+        else { c.state = "run"; c.tm = 1.2; }
+        return "critter";
+    }
+    for (i = 0; i < w.people.length; i++) {
+        var p = w.people[i];
+        if (!hit(p.x, p.y - (p.kid ? 9 : 14), p.y, 4)) continue;
+        // Saluda; si es un niño con globo, se le escapa.
+        p.wave = 2;
+        if (p.balloon) releaseBalloon(w, p, R);
+        return "person";
+    }
+    for (i = 0; i < w.pigeons.length; i++) {
+        var g = w.pigeons[i];
+        if (g.state === "fly" || !hit(g.x, g.y - 3, g.y + 1, 4)) continue;
+        scarePigeon(g, x, R);
+        return "pigeon";
+    }
+    var f = w.flyer;
+    if (f && f.kind === "ufo" && f.st !== "out" && Math.abs(x - f.x) < 9 && Math.abs(y - f.y - 3) < 6) {
+        if (f.cow) f.cow.lift = 0;
+        f.st = "out"; f.tm = 0; f.beam = 0; f.vx = (x < f.x ? 1 : -1) * 30; f.vy = -10;
+        return "ufo";
+    }
+    var sx = clamp(Math.round(x), 0, w.W - 1);
+    if (!w.noWater && y > w.yW + 1 && y < (w.wBot || w.yP + 6) && y >= w.sky[sx]) {
+        w.ripples.push({ x: x, y: y, age: 0 });
+        return "water";
+    }
+    if (y < w.sky[sx]) {
+        // De noche, un cohete que estalla donde hiciste clic; de día, una parvada que sale volando.
+        if (P_night(w) > 0.5) {
+            w.rockets.push({ x: x + (R() - 0.5) * 10, y: w.base, vx: (R() - 0.5) * 4, vy: -(90 + R() * 20), ty: y,
+                col: rgb(pick(R, FIREWORKS)), col2: rgb(pick(R, FIREWORKS)), kind: Math.floor(R() * 3) });
+        } else {
+            var fd = R() < 0.5 ? 1 : -1, fl = { x: x, y: y, dir: fd, speed: 22 + R() * 8, birds: [] };
+            for (i = 0; i < 6; i++) fl.birds.push({ dx: (R() - 0.5) * 14, dy: (R() - 0.5) * 8, ph: R() * 6 });
+            w.flocks.push(fl);
+        }
+        return "sky";
+    }
+    return null;
+}
+
+// Noche según la hora de la simulación (poke no recibe la paleta).
+function P_night(w) { var h = w.hour; return h >= 20 || h < 5.5 ? 1 : (h >= 19 || h < 6.5 ? 0.6 : 0); }
+
+function scarePigeon(g, fromX, R) {
+    g.state = "fly";
+    g.vx = (fromX < g.x ? 1 : -1) * (22 + R() * 14);
+    g.vy = -(18 + R() * 14);
+    g.dir = g.vx > 0 ? 1 : -1;
+}
+
+// Lo que provoca el puntero en cada paso: la gente cercana saluda y las palomas se espantan.
+function stepInteract(w, dt) {
+    var i, cur = w.cursor;
+    for (i = 0; i < w.people.length; i++) {
+        var p = w.people[i];
+        if (p.wave > 0) p.wave -= dt;
+        if (cur && !p.bike && Math.abs(cur.x - p.x) < 10 && cur.y > p.y - 22 && cur.y < p.y + 4) p.wave = Math.max(p.wave || 0, 0.6);
+    }
+    if (cur) for (i = 0; i < w.pigeons.length; i++) {
+        var g = w.pigeons[i];
+        if (g.state !== "fly" && g.state !== "land" && Math.abs(cur.x - g.x) < 6 && Math.abs(cur.y - g.y) < 5) scarePigeon(g, cur.x, Math.random);
+    }
+    if (w.critters) for (i = 0; i < w.critters.length; i++) {
+        var c = w.critters[i];
+        if (c.jump > 0) c.jump -= dt;
+    }
+    for (i = w.ripples.length - 1; i >= 0; i--) {
+        w.ripples[i].age += dt;
+        if (w.ripples[i].age > 2.5) w.ripples.splice(i, 1);
+    }
+    if (w.showerT > 0) w.showerT -= dt;
+}
+
+// Ondas en el agua donde hiciste clic, con un salpicón al principio.
+function drawRipples(ctx, w, P) {
+    var col = css(mix(P.water, [255, 255, 255], 0.55));
+    for (var i = 0; i < w.ripples.length; i++) {
+        var r = w.ripples[i], x = Math.round(r.x), y = Math.round(r.y);
+        if (r.age < 0.4) {
+            var h = Math.round(Math.sin(r.age / 0.4 * Math.PI) * 4);
+            ctx.globalAlpha = 0.8;
+            rect(ctx, x, y - h, 1, h, col);
+            rect(ctx, x - 2, y - Math.round(h * 0.6), 1, 1, col);
+            rect(ctx, x + 2, y - Math.round(h * 0.6), 1, 1, col);
+        }
+        for (var k = 0; k < 2; k++) {
+            var rr = (r.age - k * 0.5) * 6;
+            if (rr <= 0) continue;
+            ctx.globalAlpha = clamp(0.65 - rr / 16, 0, 1);
+            rect(ctx, x - Math.round(rr) - 1, y, 2, 1, col);
+            rect(ctx, x + Math.round(rr), y, 2, 1, col);
+            rect(ctx, x - Math.round(rr * 0.6), y - 1, Math.round(rr * 1.2) + 1, 1, col);
+            rect(ctx, x - Math.round(rr * 0.6), y + 1, Math.round(rr * 1.2) + 1, 1, col);
+        }
+    }
+    ctx.globalAlpha = 1;
 }
 
 // ---------- tabla de escenas ----------

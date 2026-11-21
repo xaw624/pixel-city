@@ -11,12 +11,14 @@ cd pixel-city
 ./install.sh --activate
 ```
 
-- `./install.sh` instala o actualiza (es idempotente).
+- `./install.sh` instala o actualiza (es idempotente). También copia `bin/pixelcity` a `~/.local/bin`,
+  crea un `.desktop` oculto por orden en `~/.local/share/applications` y registra sus atajos
+  Meta+Ctrl+letra en kglobalaccel por D-Bus (`doRegister` + `setShortcut`; sin pisar uno cambiado).
 - `--activate` lo pone como fondo en todas las pantallas vía D-Bus. **Cambia el fondo del usuario**:
   pide confirmación antes de usarlo si el usuario solo pidió instalar.
 - `--restart` reinicia `plasmashell` (la barra parpadea unos segundos; las ventanas no se cierran).
   Necesario para que Plasma cargue el código nuevo después de un cambio.
-- `--uninstall` lo desinstala.
+- `--uninstall` lo desinstala (y quita el comando y los atajos).
 
 Equivalente manual:
 
@@ -59,7 +61,7 @@ la configuración del fondo anterior se conserva.
 - `preview.html`, `catalog.html`, `anuncios.html`: arneses para probar en el navegador.
 - `lively/`: versión web para Lively Wallpaper en Windows. `index.html` repite lo que hace
   `main.qml` (capas, ritmos, semilla, pausa con `livelyWallpaperPlaybackChanged`) y recibe los
-  ajustes en `livelyPropertyListener` (índices de `LivelyProperties.json`) o por la dirección
+  ajustes en `livelyPropertyListener` (índices de `LivelyProperties.json`; `mouse` activa el ratón) o por la dirección
   (`?scene=beach&lines=360`). Si cambias los ritmos o las capas de `main.qml`, cámbialos aquí
   también; si agregas un escenario, agrégalo a `SCENE_IDS` y a `LivelyProperties.json` en el
   mismo orden. `lively/build.sh` copia `scene.js` y arma `dist/pixel-city-lively-<versión>.zip`.
@@ -76,7 +78,7 @@ firefox --headless --no-remote --profile "$(mktemp -d)" --window-size=1920,1080 
 Usa rutas absolutas para `--screenshot`. Parámetros de `preview.html`: `hour`, `rain`, `sim`
 (segundos simulados), `seed`, `live=1`, `scene` (`city`, `beach`, `mountain`, `village`, `farm`, `cyber`), `weather` (`clear`, `rain`, `storm`, `snow`, `fog`,
 `rainbow`, `fireworks`, `aurora`; llama a `setWeather` y congela el clima), `flyer` (un tipo de `FLYERS`), `jets=1`,
-`date=10-31` (finge la fecha: temporadas, lluvias de estrellas, luna llena) y `odd=cat,whale,...` (saca curiosidades
+`cmd=fuegos,ovni` (órdenes de los atajos), `date=10-31` (finge la fecha: temporadas, lluvias de estrellas, luna llena) y `odd=cat,whale,...` (saca curiosidades
 con `forceOddity`: `cat`, `opossum`, `nessie`, `whale`, `sat`, `starlink`, `balloon`, `shower`, `aurora`, `wolf`).
 
 ## Trampas conocidas
@@ -125,6 +127,15 @@ con `forceOddity`: `cat`, `opossum`, `nessie`, `whale`, `sat`, `starlink`, `ball
   (31 oct) y papel picado, cempasúchil y velas (28 oct–2 nov), solo en ciudad y campo; el pueblo es navideño todo
   el año. Usa `today(w)` en vez de `new Date()` para que `date=` funcione. Nada de esto toca la semilla ni las
   capas fijas.
+- Interacción (sección "interacción" de `scene.js`): `poke(w, x, y)` es un clic y `hover(w, x, y)` el
+  puntero, en pixeles de arte; `command(w, nombre)` ejecuta una orden de `COMMANDS` (fuegos, ovni,
+  estrellas, aurora, gato, globo, lluvia, jets). En `main.qml` el clic se toma al presionar con un
+  `TapHandler` (ajuste `Mouse`). Plasma solo le pasa el ratón al fondo con el diseño «Escritorio»: con
+  «Vista de carpeta» no llega nada; con «Escritorio» llegan movimiento y clic izquierdo, pero no
+  doble clic, rueda ni clic derecho. Las órdenes llegan por la clave `Command` ("nombre marca"): el
+  comando `pixelcity` la escribe con `org.kde.PlasmaShell.setWallpaper` (gdbus) solo en las pantallas
+  que ya tienen Pixel City, y `main.qml` reacciona en `onOrderChanged`. Probar:
+  `preview.html?live=1&cmd=fuegos` (el arnés también acepta clics) o `pixelcity fuegos` en el escritorio.
 - Jets de la hora en punto: `w.jets`, aparte de los turnos (`stepJets`); `preview.html?jets=1`.
 - La ciudad usa una semilla fija (`20251115` en `main.qml`): misma ciudad en cada reinicio.
 - Al tocar lo común, verifica que la ciudad no cambie: renderiza `drawSky`/`drawCity`/`drawFront`

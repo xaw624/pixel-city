@@ -45,6 +45,18 @@ completamente por código (sin videos ni imágenes).
   - **Nieve** en invierno, que se acumula en techos, barandal, bancas y árboles.
   - **Fuegos artificiales** algunas noches despejadas (más seguido en fin de semana, y siempre en
     Año Nuevo).
+- **Curiosidades**: ovni de madrugada (en el campo se lleva una vaca un rato), satélites, lluvias de
+  estrellas en sus fechas, aurora boreal, gato negro, tlacuache que se hace el muerto, búho, lobo en
+  luna llena, monstruo del lago, ballena, globos que se escapan, repartidores en bici, y adornos de
+  Halloween y Día de Muertos.
+- **Interacción**:
+  - **Atajos de teclado** (con `install.sh`): Meta+Ctrl+F fuegos artificiales, U ovni, E lluvia de
+    estrellas, B aurora, G gato, O globo, L lluvia y J jets. También desde la terminal:
+    `pixelcity fuegos`. Se cambian en **Preferencias del sistema → Atajos**.
+  - **Ratón**: clic al gato, las palomas, la gente (saluda), el agua, el ovni o el cielo (fuegos de
+    noche, parvada de día). Plasma solo le pasa el ratón al fondo con el diseño de escritorio
+    **Escritorio** (sin íconos); con **Vista de carpeta** el ratón es para los íconos. Se apaga en los
+    ajustes del fondo. En Lively funciona si activas la entrada del ratón.
 - **Ligero**: dibuja en un lienzo de 270 líneas escalado sin suavizado, y se **pausa** cuando la
   ventana activa está maximizada o a pantalla completa.
 - **Definición ajustable**: en **Configurar escritorio y fondo** puedes elegir 216, 270, 360 o 540

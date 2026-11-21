@@ -11,5 +11,11 @@
     "text": "Definición",
     "help": "Con más definición hay más detalle y la gente se ve más chica; usa algo más de CPU.",
     "items": ["Baja · pixeles grandes (216 líneas)", "Normal (270 líneas)", "Alta (360 líneas)", "Muy alta · pixeles finos (540 líneas)"]
+  },
+  "mouse": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Reaccionar al ratón",
+    "help": "Clic al gato, las palomas, la gente, el agua, el ovni o el cielo. En Lively activa también Ajustes → Fondo → Entrada del fondo: Ratón."
   }
 }

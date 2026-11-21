@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Le manda una orden a Pixel City en todas las pantallas donde está puesto como fondo.
+# Los atajos de teclado (Meta+Ctrl+letra) llaman a este comando; install.sh lo copia a ~/.local/bin.
+#
+#   pixelcity fuegos     fuegos artificiales un minuto
+#   pixelcity ovni       sale el ovni
+#   pixelcity estrellas  lluvia de estrellas tres minutos (de noche)
+#   pixelcity aurora     aurora boreal (de noche)
+#   pixelcity gato       pasa el gato negro
+#   pixelcity globo      a alguien se le escapa un globo
+#   pixelcity lluvia     empieza o para la lluvia
+#   pixelcity jets       pasan los jets
+set -euo pipefail
+
+ID="org.xaw.pixelcity"
+ORDERS="fuegos ovni estrellas aurora gato globo lluvia jets"
+cmd="${1:-}"
+case " $ORDERS " in
+    *" $cmd "*) [ -n "$cmd" ] || { sed -n '5,12p' "$0"; exit 2; } ;;
+    *) sed -n '5,12p' "$0" >&2; exit 2 ;;
+esac
+
+Q=""
+for q in qdbus6 qdbus /usr/lib/qt6/bin/qdbus; do command -v "$q" >/dev/null 2>&1 && { Q="$q"; break; }; done
+[ -n "$Q" ] || { echo "No encontré qdbus6." >&2; exit 1; }
+
+# Solo las pantallas que ya tienen Pixel City: setWallpaper cambiaría el fondo de las demás.
+screens="$("$Q" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript \
+    "var o=[]; desktops().forEach(function (d) { if (d.screen >= 0 && d.wallpaperPlugin == '$ID') o.push(d.screen); }); print(o.join(' '));")"
+[ -n "$screens" ] || { echo "Pixel City no está puesto como fondo." >&2; exit 1; }
+
+# La marca de tiempo hace que la clave cambie aunque se repita la orden.
+stamp="$(date +%s%N)"
+for s in $screens; do
+    gdbus call --session --dest org.kde.plasmashell --object-path /PlasmaShell \
+        --method org.kde.PlasmaShell.setWallpaper "$ID" "{'Command': <'$cmd $stamp'>}" "$s" >/dev/null
+done

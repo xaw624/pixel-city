@@ -63,6 +63,12 @@ if (q.has("flyer")) {
 if (q.has("jets")) spawnJets(world, Math.random);
 // odd=cat,opossum,nessie,whale,sat,starlink,balloon,shower,aurora,wolf saca esas curiosidades.
 if (q.has("odd")) q.get("odd").split(",").forEach(function (k) { forceOddity(world, k); });
+// cmd=fuegos,ovni ejecuta esas órdenes de los atajos (ver COMMANDS).
+if (q.has("cmd")) q.get("cmd").split(",").forEach(function (k) { command(world, k); });
+// Ratón: clic y puntero como en el escritorio (en pixeles de arte).
+out.addEventListener("mousemove", function (e) { hover(world, e.offsetX / PX, e.offsetY / PX); });
+out.addEventListener("mouseleave", function () { hover(world, null); });
+out.addEventListener("mousedown", function (e) { poke(world, e.offsetX / PX, e.offsetY / PX); });
 var sim = +(q.get("sim") || 0);
 for (var s = 0; s < sim * 12; s++) step(world, 1 / 12, hourNow(), P);
 repaintStatic(t0);

@@ -15,6 +15,11 @@ WallpaperItem {
     readonly property int fps: 12
     // Paisaje elegido en los ajustes: "city", "beach", "mountain", "village", "farm" o "cyber".
     readonly property string sceneName: configuration.Scene || "city"
+    readonly property bool mouseOn: configuration.Mouse !== false
+    // Órdenes de los atajos de teclado: el comando pixelcity escribe "nombre marca" en la clave
+    // Command por D-Bus (setWallpaper) y aquí se ejecuta cada vez que cambia.
+    readonly property string order: configuration.Command || ""
+    onOrderChanged: if (world && order) Scene.command(world, order.split(" ")[0])
 
     // Pausa la animación cuando una ventana maximizada o a pantalla completa tapa el escritorio.
     property bool covered: false
@@ -159,6 +164,31 @@ WallpaperItem {
         PixelCanvas {
             id: front
             onPaint: if (root.world) Scene.drawFront(getContext("2d"), root.world, root.pal)
+        }
+    }
+
+    // Interacción con el ratón (ajuste "Interacción"). Plasma solo le pasa el ratón al fondo con el
+    // diseño de escritorio «Escritorio»; con «Vista de carpeta» se lo queda la capa de los íconos.
+    // Llegan el movimiento y el clic izquierdo; el clic se toma al presionar, que llega siempre.
+    function artPoint(pos) {
+        var k = root.height / root.lh
+        return Qt.point(pos.x / k, pos.y / k)
+    }
+    HoverHandler {
+        enabled: root.mouseOn
+        onHoveredChanged: if (!hovered && root.world) Scene.hover(root.world, null)
+        onPointChanged: if (hovered && root.world) {
+            var a = root.artPoint(point.position)
+            Scene.hover(root.world, a.x, a.y)
+        }
+    }
+    TapHandler {
+        enabled: root.mouseOn
+        acceptedButtons: Qt.LeftButton
+        onPressedChanged: if (pressed && root.world && root.animating) {
+            var a = root.artPoint(point.position)
+            Scene.poke(root.world, a.x, a.y)
+            life.requestPaint()
         }
     }
 

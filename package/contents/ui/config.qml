@@ -11,6 +11,8 @@ Kirigami.FormLayout {
     property int cfg_LinesDefault: 270
     property string cfg_Scene
     property string cfg_SceneDefault: "city"
+    property bool cfg_Mouse
+    property bool cfg_MouseDefault: true
 
     readonly property var scenes: [
         { id: "city", text: "Ciudad junto al agua" },
@@ -68,5 +70,25 @@ Kirigami.FormLayout {
         opacity: 0.75
         text: "Con más definición la escena tiene más detalle (en la ciudad, más edificios) y la gente se ve más chica. "
             + "Usa algo más de CPU. Al cambiarla se genera de nuevo la escena."
+    }
+
+    QQC2.CheckBox {
+        Kirigami.FormData.label: "Interacción:"
+        text: "Reaccionar al ratón"
+        checked: page.cfg_Mouse
+        onToggled: page.cfg_Mouse = checked
+    }
+
+    QQC2.Label {
+        Layout.maximumWidth: Kirigami.Units.gridUnit * 22
+        wrapMode: Text.WordWrap
+        font: Kirigami.Theme.smallFont
+        opacity: 0.75
+        text: "Con el ratón puedes espantar al gato y a las palomas, saludar a la gente, soltar globos, salpicar el agua, "
+            + "correr al ovni o lanzar fuegos artificiales al cielo. Plasma solo le pasa el ratón al fondo si arriba, en "
+            + "«Diseño», eliges «Escritorio» (sin íconos); con «Vista de carpeta» el ratón es para los íconos.\n\n"
+            + "Los atajos de teclado funcionan con cualquier diseño: Meta+Ctrl+F fuegos artificiales, U ovni, "
+            + "E lluvia de estrellas, B aurora, G gato, O globo, L lluvia y J jets. Se cambian en Preferencias del "
+            + "sistema → Atajos (busca «Pixel City»)."
     }
 }

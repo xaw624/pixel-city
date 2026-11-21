@@ -24,7 +24,8 @@ var FPS = 12;
 var q = new URLSearchParams(location.search);
 var cfg = {
   scene: SCENE_IDS.indexOf(q.get("scene")) >= 0 ? q.get("scene") : "city",
-  lines: LEVELS.indexOf(+q.get("lines")) >= 0 ? +q.get("lines") : 270
+  lines: LEVELS.indexOf(+q.get("lines")) >= 0 ? +q.get("lines") : 270,
+  mouse: q.get("mouse") !== "0"
 };
 
 var out = document.getElementById("out"), octx = out.getContext("2d");
@@ -129,6 +130,7 @@ function livelyPropertyListener(name, val) {
   var old = cfg.scene + cfg.lines;
   if (name === "scene" && SCENE_IDS[val]) cfg.scene = SCENE_IDS[val];
   else if (name === "lines" && LEVELS[val]) cfg.lines = LEVELS[val];
+  else if (name === "mouse") { cfg.mouse = !!val; if (world && !cfg.mouse) hover(world, null); }
   if (cfg.scene + cfg.lines !== old) scheduleRebuild();
 }
 
@@ -136,6 +138,16 @@ function livelyPropertyListener(name, val) {
 function livelyWallpaperPlaybackChanged(data) {
   try { setPaused(!!JSON.parse(data).IsPaused); } catch (e) {}
 }
+
+// Ratón (si Lively le pasa la entrada al fondo): como en main.qml, el clic se toma al presionar.
+function artXY(e) { var k = innerHeight / lh; return [e.clientX / k, e.clientY / k]; }
+addEventListener("mousemove", function (e) { if (world && cfg.mouse) { var a = artXY(e); hover(world, a[0], a[1]); } });
+addEventListener("mouseleave", function () { if (world) hover(world, null); });
+addEventListener("mousedown", function (e) {
+  if (!world || !cfg.mouse || paused || e.button !== 0) return;
+  var a = artXY(e);
+  poke(world, a[0], a[1]);
+});
 
 document.addEventListener("visibilitychange", function () { setPaused(document.hidden); });
 addEventListener("resize", scheduleRebuild);
